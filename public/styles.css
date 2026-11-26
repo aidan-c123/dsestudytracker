@@ -24,37 +24,57 @@
   --grade-1: #6b5a55;
   --grade-2: #77603c;
   --grade-3: #5c663c;
+  /* Accents beyond the working green, so information is not all one colour. */
+  --info: #2f5d8a;
+  --info-soft: #e6eef6;
+  --info-line: #b9cfe2;
+  --plum: #6b4a7a;
+  --plum-soft: #f0e9f3;
+  --plum-line: #d3c0da;
   /* One shallow shadow, so a panel separates from the page without a glow. */
   --shadow-sm: 0 1px 2px rgba(52, 45, 30, 0.045), 0 6px 16px -12px rgba(52, 45, 30, 0.16);
   --radius: 10px;
   --radius-control: 6px;
-  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial,
+  --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial,
     "PingFang HK", "Noto Sans TC", sans-serif;
-  --mono: var(--sans);
+  /* A display serif, used only for the page title, the countdown and the
+     timer — three places where a bigger voice is earned. */
+  --font-display: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua",
+    "Source Serif 4", Georgia, "Songti SC", serif;
+  /* Figures align in columns without pretending to be code. */
+  --font-num: ui-monospace, "SF Mono", "Cascadia Mono", "Roboto Mono", Menlo, monospace;
+  --sans: var(--font-ui);
+  --mono: var(--font-num);
   color-scheme: light;
 }
 
 html[data-theme="dark"] {
-  --paper: #121312;
-  --paper-2: #191a18;
-  --paper-3: #212220;
-  --ink: #eceae5;
-  --ink-soft: #c8c6bf;
-  --muted: #94918a;
-  --line: #2b2c29;
-  --line-strong: #40413c;
-  --accent: #7cc5b0;
-  --accent-ink: #0b1a16;
-  --accent-soft: #1c2824;
-  --accent-line: #35514a;
-  --warn: #e29680;
-  --warn-soft: #2b201c;
-  --gold: #d4bb7c;
-  --gold-soft: #2a2617;
-  --grade-1: #c4a89f;
-  --grade-2: #cdb591;
-  --grade-3: #bcc48f;
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35), 0 8px 20px -14px rgba(0, 0, 0, 0.7);
+  --paper: #0f1113;
+  --paper-2: #171a1d;
+  --paper-3: #1f2327;
+  --ink: #eef0ec;
+  --ink-soft: #c2c8c4;
+  --muted: #8d958f;
+  --line: #2a2f33;
+  --line-strong: #3d4449;
+  --accent: #7fd0b6;
+  --accent-ink: #08130f;
+  --accent-soft: #182924;
+  --accent-line: #31544a;
+  --warn: #f0997f;
+  --warn-soft: #2e201b;
+  --gold: #e0c383;
+  --gold-soft: #2b2517;
+  --grade-1: #d3b0a5;
+  --grade-2: #dcc394;
+  --grade-3: #c6cf92;
+  --info: #8fb8e0;
+  --info-soft: #18242f;
+  --info-line: #2f4457;
+  --plum: #c3a0d2;
+  --plum-soft: #251c2b;
+  --plum-line: #3e2f47;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4), 0 10px 24px -16px rgba(0, 0, 0, 0.85);
   color-scheme: dark;
 }
 
@@ -72,19 +92,23 @@ body {
   text-rendering: optimizeLegibility;
 }
 
-h1, h2, h3, h4 { font-family: var(--sans); font-weight: 600; letter-spacing: -0.011em; margin: 0; }
-h1 { font-size: 1.5rem; }
-h2 { font-size: 1.06rem; }
+h1, h2, h3, h4 { font-family: var(--font-ui); font-weight: 620; letter-spacing: -0.014em; margin: 0; }
+/* Only the page title takes the display face. Everything else stays in the UI
+   sans, so the serif reads as a deliberate accent rather than a default. */
+h1 { font-family: var(--font-display); font-size: 1.62rem; font-weight: 600; letter-spacing: -0.02em; }
+h2 { font-size: 1.04rem; }
 h3 { font-size: 0.95rem; }
 p { margin: 0; }
 a { color: var(--accent); text-underline-offset: 2px; }
 
-/* A small label. Sentence case, not tracked capitals. */
+/* A small label, in the serif, which is where the second voice shows most. */
 .eyebrow {
-  font-size: 0.78rem;
+  font-size: 0.79rem;
   color: var(--muted);
-  font-weight: 500;
-  font-family: var(--sans);
+  font-weight: 400;
+  font-family: var(--font-display);
+  font-style: italic;
+  letter-spacing: 0.005em;
 }
 
 .muted { color: var(--muted); }
@@ -312,27 +336,33 @@ html[data-theme="dark"] select {
 .chip-accent { background: var(--accent-soft); color: var(--accent); border-color: var(--accent-line); }
 .chip-warn { background: var(--warn-soft); color: var(--warn); border-color: color-mix(in srgb, var(--warn) 26%, transparent); }
 .chip-gold { background: var(--gold-soft); color: var(--gold); border-color: color-mix(in srgb, var(--gold) 32%, transparent); }
+.chip-info { background: var(--info-soft); color: var(--info); border-color: var(--info-line); }
+.chip-plum { background: var(--plum-soft); color: var(--plum); border-color: var(--plum-line); }
 .chip-ghost { background: transparent; }
 
-/* A level is a mark, so it is set as a number in a bordered box — like a grade
-   written in a mark sheet. Stronger grades get more ink, not a new colour. */
+/* A level is a mark, so it is set in the numeral face inside a bordered box.
+   The ramp climbs by colour: clay → ochre → olive → green, with the starred
+   grades carrying the accent solid. */
 .lvl {
   display: inline-grid; place-items: center;
   min-width: 28px; height: 23px; padding: 0 6px;
   border-radius: 4px;
-  font-size: 0.8rem; font-weight: 650; line-height: 1;
+  font-family: var(--font-num); font-size: 0.78rem; font-weight: 650; line-height: 1;
   border: 1px solid var(--line-strong); background: var(--paper-2); color: var(--ink-soft);
   font-variant-numeric: tabular-nums;
 }
-.lvl-1, .lvl-2, .lvl-3 { color: var(--grade-1); border-color: color-mix(in srgb, var(--grade-1) 34%, var(--line)); }
-.lvl-2 { color: var(--grade-2); border-color: color-mix(in srgb, var(--grade-2) 34%, var(--line)); }
-.lvl-3 { color: var(--grade-3); border-color: color-mix(in srgb, var(--grade-3) 34%, var(--line)); }
+.lvl-1, .lvl-2, .lvl-3 { color: var(--grade-1); border-color: color-mix(in srgb, var(--grade-1) 38%, var(--line)); background: color-mix(in srgb, var(--grade-1) 8%, var(--paper-2)); }
+.lvl-2 { color: var(--grade-2); border-color: color-mix(in srgb, var(--grade-2) 38%, var(--line)); background: color-mix(in srgb, var(--grade-2) 10%, var(--paper-2)); }
+.lvl-3 { color: var(--grade-3); border-color: color-mix(in srgb, var(--grade-3) 38%, var(--line)); background: color-mix(in srgb, var(--grade-3) 10%, var(--paper-2)); }
 .lvl-4 { background: var(--accent-soft); color: var(--accent); border-color: var(--accent-line); font-weight: 700; }
 .lvl-5 { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 700; }
 /* 5* and 5** are the same mark, starred. A second inner hairline reads as a
    star rank without an outline sitting outside the chip. */
 .lvl-6 { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 700; box-shadow: inset 0 0 0 1px var(--paper-2); }
-.lvl-7 { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 700; box-shadow: inset 0 0 0 2px var(--paper-2); }
+.lvl-7 {
+  background: var(--gold-soft); color: var(--gold); border-color: var(--gold); font-weight: 700;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--gold) 45%, transparent);
+}
 
 /* CSD is graded Attained / Not attained, so it gets a word chip, not a level. */
 .attain {
@@ -359,14 +389,16 @@ html[data-theme="dark"] select {
 /* A hairline rule under the label, as on a printed timetable. */
 .count-card .eyebrow { padding-bottom: 8px; border-bottom: 1px solid var(--line); }
 .count-days {
-  font-size: clamp(3rem, 7.5vw, 4.6rem);
-  line-height: 1; letter-spacing: -0.045em; color: var(--ink);
-  font-variant-numeric: tabular-nums; font-weight: 620;
+  font-family: var(--font-display);
+  font-size: clamp(3rem, 7.5vw, 4.7rem);
+  line-height: 1; letter-spacing: -0.035em; color: var(--ink);
+  font-variant-numeric: tabular-nums; font-weight: 600;
   margin-top: 12px;
 }
 .count-days small {
-  font-size: 0.26em; letter-spacing: 0; color: var(--muted);
-  font-weight: 500; margin-left: 8px;
+  font-family: var(--font-ui);
+  font-size: 0.24em; letter-spacing: 0; color: var(--muted);
+  font-weight: 500; margin-left: 9px; font-style: italic;
 }
 .count-clock { display: flex; gap: 6px; margin-top: 16px; }
 .count-cell {
@@ -434,16 +466,27 @@ html[data-theme="dark"] select {
 .level-pair { display: flex; align-items: center; gap: 5px; font-size: 0.7rem; color: var(--muted); }
 .level-pair .arrow { color: var(--line-strong); }
 
+/* A subject's own hue, derived from its code so it is stable between loads.
+   Applied only as a small mark — a dot next to the name, a top hairline on the
+   card — never as a filled area. Without this every page looked the same. */
+.subj-dot { width: 7px; height: 7px; border-radius: 2px; flex: none; background: var(--subj, var(--accent)); }
+.card.has-subject { position: relative; overflow: hidden; }
+.card.has-subject::before {
+  content: ""; position: absolute; inset: 0 0 auto 0; height: 2px;
+  background: var(--subj, var(--accent));
+  opacity: 0.85;
+}
+.subject-tab[aria-pressed="true"] { background: var(--ink); border-color: var(--ink); color: var(--paper); }
+
 /* ---------------------------------- matrix -------------------------------- */
 
 .subject-tabs { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: thin; }
 .subject-tab {
   border: 1px solid var(--line); background: var(--paper-2); color: var(--ink-soft);
   border-radius: var(--radius-control); padding: 5px 11px; font-size: 0.8rem; font-weight: 600;
-  cursor: pointer; white-space: nowrap; font-family: var(--sans);
+  cursor: pointer; white-space: nowrap; font-family: var(--font-ui);
+  border-bottom: 2px solid var(--subj, var(--line-strong));
 }
-.subject-tab:hover { border-color: var(--line-strong); color: var(--ink); }
-.subject-tab[aria-pressed="true"] { background: var(--ink); border-color: var(--ink); color: var(--paper); }
 
 /* A table, so it is square: no rounded frame, no shadow. */
 .matrix-scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 0; }
@@ -487,20 +530,64 @@ html[data-theme="dark"] select {
 
 /* Grade boundaries, quoted from the published cut-off tables. */
 .cut-note {
-  margin-top: 12px; padding: 10px 12px;
+  margin-top: 12px; padding: 12px 14px;
   border: 1px solid var(--line); border-radius: var(--radius-control);
   background: var(--paper);
 }
-.cut-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; font-size: 0.78rem; }
-.cut-head .muted { font-size: 0.72rem; }
-.cut-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
-.cut-tag {
-  font-size: 0.72rem; color: var(--ink-soft); font-variant-numeric: tabular-nums;
-  background: var(--paper-3); border-radius: 3px; padding: 2px 7px;
+.cut-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; font-size: 0.79rem; }
+.cut-head .spacer { flex: 1; }
+.cut-head .muted { font-size: 0.73rem; }
+.cut-key { font-size: 0.7rem; color: var(--muted); display: inline-flex; align-items: center; gap: 5px; }
+.cut-key i { width: 8px; height: 8px; border-radius: 2px; background: var(--accent); }
+.cut-key-raw { opacity: 0.75; }
+
+/* Six boundaries per row, with the starred grades visibly marked. */
+.bd-block { margin-top: 10px; }
+.bd-label { font-size: 0.7rem; color: var(--muted); margin-bottom: 5px; }
+.bd-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 4px; }
+.bd-cell {
+  display: grid; gap: 1px; justify-items: center; padding: 6px 4px;
+  border: 1px solid var(--line); border-radius: 4px; background: var(--paper-2);
+  font-variant-numeric: tabular-nums; line-height: 1.3;
 }
-.cut-tag b { color: var(--ink); font-weight: 650; }
-.cut-foot { margin-top: 8px; font-size: 0.7rem; color: var(--muted); line-height: 1.5; }
+.bd-grade { font-size: 0.72rem; font-weight: 650; color: var(--ink-soft); }
+.bd-pct { font-size: 0.85rem; font-weight: 650; color: var(--ink); }
+.bd-raw { font-size: 0.64rem; color: var(--muted); font-family: var(--font-num); }
+/* 5* and 5** are what a candidate is chasing, so they get the accent. */
+.bd-cell.is-star { border-color: var(--accent-line); background: var(--accent-soft); }
+.bd-cell.is-star .bd-grade, .bd-cell.is-star .bd-pct { color: var(--accent); }
+.bd-extra { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--line); display: grid; gap: 8px; }
+.cut-foot { margin-top: 10px; font-size: 0.71rem; color: var(--muted); line-height: 1.55; }
 .cut-foot a { color: var(--accent); }
+
+/* The prediction, fresh from the current bands. */
+.standing {
+  display: flex; align-items: baseline; gap: 9px; flex-wrap: wrap;
+  margin-top: 10px; padding: 9px 12px;
+  border: 1px solid var(--line); border-left: 3px solid var(--accent);
+  border-radius: var(--radius-control); background: var(--paper-2);
+}
+.standing.is-high { border-left-color: var(--gold); }
+.standing-label { font-size: 0.74rem; color: var(--muted); }
+.standing-value {
+  font-family: var(--font-display); font-size: 1.28rem; font-weight: 650;
+  color: var(--accent); line-height: 1; font-variant-numeric: tabular-nums;
+}
+.standing.is-high .standing-value { color: var(--gold); }
+.standing-note { font-size: 0.74rem; color: var(--muted); }
+
+/* Same idea inside the subject dialog, before saving. */
+.pred-box {
+  display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+  padding: 10px 12px; border: 1px solid var(--accent-line); border-radius: var(--radius-control);
+  background: var(--accent-soft);
+}
+.pred-box-label { font-size: 0.73rem; color: var(--muted); flex: 1 1 100%; }
+.pred-box-value {
+  font-family: var(--font-display); font-size: 1.5rem; font-weight: 650; line-height: 1;
+  color: var(--accent); font-variant-numeric: tabular-nums;
+}
+.pred-box-note { font-size: 0.74rem; color: var(--ink-soft); }
 .swatch { width: 11px; height: 11px; border-radius: 2px; border: 1px solid var(--line); }
 .sw-a { background: color-mix(in srgb, var(--accent) 6%, var(--paper-2)); }
 .sw-b { background: color-mix(in srgb, var(--accent) 13%, var(--paper-2)); }
@@ -515,10 +602,18 @@ html[data-theme="dark"] select {
 .stat {
   background: var(--paper-2); border: 1px solid var(--line);
   border-radius: var(--radius-control); padding: 9px 11px;
+  border-top: 2px solid var(--line-strong);
 }
+/* Each figure gets its own colour so a row of five is scannable at a glance
+   rather than five identical grey boxes. The colour is the only difference. */
+.stat-row .stat:nth-child(1) { border-top-color: var(--accent); }
+.stat-row .stat:nth-child(2) { border-top-color: var(--info); }
+.stat-row .stat:nth-child(3) { border-top-color: var(--plum); }
+.stat-row .stat:nth-child(4) { border-top-color: var(--gold); }
+.stat-row .stat:nth-child(5) { border-top-color: var(--warn); }
 .stat .k { font-size: 0.72rem; color: var(--muted); }
-.stat .v { font-size: 1.22rem; line-height: 1.3; font-variant-numeric: tabular-nums; font-weight: 600; }
-.stat .v small { font-size: 0.7rem; color: var(--muted); font-weight: 400; }
+.stat .v { font-family: var(--font-num); font-size: 1.16rem; line-height: 1.35; font-variant-numeric: tabular-nums; font-weight: 600; letter-spacing: -0.01em; }
+.stat .v small { font-family: var(--font-ui); font-size: 0.7rem; color: var(--muted); font-weight: 400; }
 
 /* ---------------------------------- table --------------------------------- */
 
@@ -547,8 +642,9 @@ table.plain td.num { font-variant-numeric: tabular-nums; font-size: 0.8rem; }
 .dial .meter { stroke: var(--accent); transition: stroke-dashoffset 0.4s linear; }
 .dial-inner { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; gap: 5px; }
 .dial-time {
-  font-size: clamp(2.5rem, 9vw, 3.2rem);
-  line-height: 1; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; font-weight: 600;
+  font-family: var(--font-display);
+  font-size: clamp(2.5rem, 9vw, 3.3rem);
+  line-height: 1; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; font-weight: 600;
 }
 .dial-phase { font-size: 0.72rem; color: var(--muted); font-weight: 500; }
 .presets { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; }

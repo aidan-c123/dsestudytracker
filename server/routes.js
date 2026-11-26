@@ -46,8 +46,14 @@ export async function handleApi(request, path, injectedStore) {
     }
   }
 
+  // A DELETE carries no body by convention, but the app sends the cell so a
+  // stale row id still deletes the right cell. Read it when it is there.
   const body =
-    ['POST', 'PATCH', 'PUT'].includes(method) ? await request.json().catch(() => null) : null;
+    method === 'DELETE'
+      ? await request.json().catch(() => null)
+      : ['POST', 'PATCH', 'PUT'].includes(method)
+        ? await request.json().catch(() => null)
+        : null;
   if (['POST', 'PATCH', 'PUT'].includes(method) && (!body || typeof body !== 'object')) {
     return fail('Malformed request body.', 400);
   }
@@ -343,7 +349,22 @@ export async function handleApi(request, path, injectedStore) {
     }
 
     if (paperMatch && method === 'DELETE') {
-      await store.removePaper(userId, paperMatch[1]);
+      // Send the cell as well as the id. The stored id can be stale — the
+      // matrix upserts a cell, which can replace the row the browser last saw —
+      // and deleting nothing used to answer "ok" while the grade stayed on
+      // screen. If the id is unknown, remove by cell; if that also finds
+      // nothing, say so instead of pretending it worked.
+      const cell = {
+        subjectId: text(body?.subjectId, 40),
+        year: body?.year === undefined ? null : Number(body.year),
+        paper: text(body?.paper, 20)
+      };
+      let removed = await store.removePaper(userId, paperMatch[1]);
+      if (!removed && cell.subjectId && Number.isFinite(cell.year) && cell.paper) {
+        const owned = await store.ownedSubject(userId, cell.subjectId);
+        if (owned) removed = await store.removePaperCell(userId, cell);
+      }
+      if (!removed) return fail('That attempt is already gone. Reload to refresh the page.', 404);
       return json(await store.loadWorkspace(auth.user));
     }
 

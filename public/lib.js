@@ -5,7 +5,7 @@
 export const $ = (sel, el = document) => el.querySelector(sel);
 export const $$ = (sel, el = document) => [...el.querySelectorAll(sel)];
 
-import { cutoffBands } from './cutoffs.js';
+import { cutoffBands, cutoffBandsForYear } from './cutoffs.js';
 
 export const esc = (v) =>
   String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -226,24 +226,42 @@ export function bandsFor(subject) {
   // Only subjects the student has not tuned fall through to the cut-offs.
   const hasCustom = custom && typeof custom === 'object' && Object.keys(custom).length;
   const resolved = { ...DEFAULT_BANDS };
-  if (!hasCustom && subject?.code) {
-    const real = cutoffBands(subject.code);
+  if (!hasCustom) {
+    // The DSE00 tables describe the *latest* sitting, which is not necessarily
+    // the sitting a paper belongs to. Older papers must keep the generic bands,
+    // or a 2013 script would be graded against 2026 boundaries.
+    const real = subject?.code ? cutoffBands(subject.code) : null;
     if (real) Object.assign(resolved, real);
   }
   if (hasCustom) {
-    for (const lvl of BAND_LEVELS) {
-      const v = Number(custom[lvl]);
-      if (Number.isFinite(v) && v > 0 && v < 100) resolved[lvl] = Math.round(v);
+    for (const level of BAND_LEVELS) {
+      const v = Number(custom[level]);
+      if (Number.isFinite(v) && v > 0 && v < 100) resolved[level] = Math.round(v);
     }
   }
   // Keep the bands monotonic even if a hand-edited value inverted them.
   let previous = 0;
-  for (const lvl of [2, 3, 4, 5, 6, 7]) {
-    resolved[lvl] = Math.max(resolved[lvl], previous + 1);
-    previous = resolved[lvl];
+  for (const level of [2, 3, 4, 5, 6, 7]) {
+    resolved[level] = Math.max(resolved[level], previous + 1);
+    previous = resolved[level];
   }
   bandCache.set(key, resolved);
   return resolved;
+}
+
+/**
+ * Bands for one particular sitting. Cached cut-offs are per-subject (a mean of
+ * the last three years), so a year the student actually sat is worth reading
+ * against its own boundaries when the source has them.
+ */
+export function bandsForYear(subject, year) {
+  const custom = subject?.gradeBands;
+  if (custom && typeof custom === 'object' && Object.keys(custom).length) {
+    return bandsFor(subject);
+  }
+  const numeric = Number(year);
+  const historic = subject?.code ? cutoffBandsForYear(subject.code, numeric) : null;
+  return historic ? { ...DEFAULT_BANDS, ...historic } : bandsFor(subject);
 }
 
 /**

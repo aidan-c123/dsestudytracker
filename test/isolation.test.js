@@ -168,9 +168,11 @@ function makeStore() {
     },
     async removePaper(userId, paperId) {
       // Mirrors the real store: delete the whole cell, so duplicate rows from
-      // an older database cannot survive the delete.
+      // an older database cannot survive the delete. Returns the count, so the
+      // route can tell "removed" from "there was nothing there".
       const doc = findOwned('pastPapers', userId, paperId);
-      if (!doc) return;
+      if (!doc) return 0;
+      let removed = 0;
       for (const [key, row] of data.pastPapers) {
         if (
           row.userId === userId &&
@@ -179,8 +181,26 @@ function makeStore() {
           row.paper === doc.paper
         ) {
           data.pastPapers.delete(key);
+          removed += 1;
         }
       }
+      return removed;
+    },
+    async removePaperCell(userId, { subjectId, year, paper }) {
+      if (!subjectId || !Number.isFinite(Number(year)) || !paper) return 0;
+      let removed = 0;
+      for (const [key, row] of data.pastPapers) {
+        if (
+          row.userId === userId &&
+          row.subjectId === subjectId &&
+          row.year === Number(year) &&
+          row.paper === paper
+        ) {
+          data.pastPapers.delete(key);
+          removed += 1;
+        }
+      }
+      return removed;
     },
     /** Test-only: plant a second row for one cell, as an unindexed DB could. */
     seedDuplicatePaper(userId, subjectId, year, paper, docId, score, maxScore) {
@@ -405,7 +425,9 @@ await test('student B cannot edit or delete student A\'s paper log', async () =>
   assert.equal(patch.status, 404, 'edit is scoped to the owner');
 
   const del = await callJson(`/papers/${paperId}`, { method: 'DELETE', cookie: bob });
-  assert.equal(del.status, 200);
+  // A delete that touches nothing must not report success: that false "ok" is
+  // what let a stale grade look as though it had been removed.
+  assert.equal(del.status, 404, 'delete is scoped to the owner and changes nothing');
   const stillThere = await callJson('/me', { cookie: alice });
   assert.equal(stillThere.data.papers.length, 1, 'record survived the foreign delete');
 });
@@ -888,6 +910,73 @@ await test('subject names are presented in English', async () => {
   assert.equal(chinese.name, 'Chinese Language');
   const csd = me.data.subjects.find((s) => s.code === 'CSD');
   assert.equal(csd.name, 'Citizenship & Social Development');
+});
+
+await test('deleting with a stale id still clears the cell, so the grade cannot linger', async () => {
+  const me = await callJson('/me', { cookie: alice });
+  const subj = me.data.subjects.find((s) => s.code === 'MATH');
+
+  const saved = await callJson('/papers', {
+    method: 'POST',
+    cookie: alice,
+    body: { subjectId: subj.id, year: 2018, paper: 'P1', percentage: 71, estimatedLevel: 5 }
+  });
+  assert.equal(saved.status, 201);
+  const row = saved.data.papers.find((p) => p.subjectId === subj.id && p.year === 2018 && p.paper === 'P1');
+  assert.ok(row, 'the attempt was saved');
+
+  // This is the shape of the real failure: the browser sends an id that no
+  // longer exists (the row was replaced by an upsert), so deleting by id alone
+  // found nothing and answered "ok" while the grade stayed on the dashboard.
+  const stale = '0123456789abcdef01234567';
+  const del = await callJson(`/papers/${stale}`, {
+    method: 'DELETE',
+    cookie: alice,
+    body: { subjectId: subj.id, year: 2018, paper: 'P1' }
+  });
+  assert.equal(del.status, 200, 'the cell supplied with the request is used instead');
+
+  const after = await callJson('/me', { cookie: alice });
+  const left = after.data.papers.filter((p) => p.subjectId === subj.id && p.year === 2018 && p.paper === 'P1');
+  assert.equal(left.length, 0, 'the grade no longer exists, so the dashboard cannot show it');
+});
+
+await test('deleting something that is already gone reports it instead of pretending', async () => {
+  const me = await callJson('/me', { cookie: alice });
+  const subj = me.data.subjects.find((s) => s.code === 'MATH');
+  const res = await callJson('/papers/0123456789abcdef01234567', {
+    method: 'DELETE',
+    cookie: alice,
+    body: { subjectId: subj.id, year: 2015, paper: 'P2' }
+  });
+  assert.equal(res.status, 404, 'a no-op delete must not claim success');
+});
+
+await test('a delete cannot clear another student’s cell', async () => {
+  const bobMe = await callJson('/me', { cookie: bob });
+  const bobsSubject = bobMe.data.subjects.find((s) => s.code === 'MATH');
+  const saved = await callJson('/papers', {
+    method: 'POST',
+    cookie: bob,
+    body: { subjectId: bobsSubject.id, year: 2017, paper: 'P1', percentage: 60, estimatedLevel: 4 }
+  });
+  assert.equal(saved.status, 201);
+
+  const aliceMe = await callJson('/me', { cookie: alice });
+  const aliceSubject = aliceMe.data.subjects.find((s) => s.code === 'MATH');
+  const attempt = await callJson('/papers/0123456789abcdef01234567', {
+    method: 'DELETE',
+    cookie: alice,
+    body: { subjectId: bobsSubject.id, year: 2017, paper: 'P1' }
+  });
+  assert.equal(attempt.status, 404, 'Bob’s subject is not Alice’s to edit');
+  void aliceSubject;
+
+  const bobsAfter = await callJson('/me', { cookie: bob });
+  const kept = bobsAfter.data.papers.filter(
+    (p) => p.subjectId === bobsSubject.id && p.year === 2017 && p.paper === 'P1'
+  );
+  assert.equal(kept.length, 1, 'Bob’s attempt survived');
 });
 
 await test('deleting an account removes its records', async () => {

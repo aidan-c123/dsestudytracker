@@ -5,39 +5,113 @@
 import {
   esc, icon, state, topbar, pct, lvlChip, lvlLabel, papersFor, matrixPapersFor, yearsFor, YEARS, subjectById,
   papersOf, otherPapersOf, subjectPrediction, subjectAttainment, subjectPct, subjectDsePct, fmtDate,
-  usesAttainment, attainmentChip, attainmentLabel, CSD_FIRST_YEAR, OTHER_SOURCES, otherSourceLabel
+  usesAttainment, attainmentChip, attainmentLabel, CSD_FIRST_YEAR, OTHER_SOURCES, otherSourceLabel,
+  levelFromPercentage, nextBand
 } from '../lib.js';
-import { cutoffFor, CUTOFF_SOURCE } from '../cutoffs.js';
+import { cutoffFor, paperCutoffFor, CUTOFF_SOURCE } from '../cutoffs.js';
+
+const GRADE_OF_LEVEL = { 7: '5**', 6: '5*', 5: '5', 4: '4', 3: '3', 2: '2' };
+const LEVEL_ORDER = [7, 6, 5, 4, 3, 2];
+
+/** The starred grades get their own row, because 5** and 5* are the ones a
+ *  candidate is actually chasing and the averages alone hide how far apart
+ *  they sit. Both a percentage and the raw mark are given: the percentage is
+ *  comparable between papers, the raw mark is what a marker's total looks like. */
+function gradeRow(record, label) {
+  if (!record?.percent) return '';
+  const cells = LEVEL_ORDER.map((level) => {
+    const grade = GRADE_OF_LEVEL[level];
+    const p = Number(record.percent?.[grade]);
+    if (!Number.isFinite(p)) return '';
+    const raw = Number(record.cutoff?.[grade]);
+    const starred = level >= 6;
+    return `<div class="bd-cell${starred ? ' is-star' : ''}">
+      <span class="bd-grade">${lvlLabel(level)}</span>
+      <span class="bd-pct">${Math.round(p)}%</span>
+      ${Number.isFinite(raw) ? `<span class="bd-raw">${raw}/${record.fullMarks}</span>` : ''}
+    </div>`;
+  }).join('');
+  if (!cells) return '';
+  return `<div class="bd-block">
+    <div class="bd-label">${label}</div>
+    <div class="bd-grid">${cells}</div>
+  </div>`;
+}
 
 /**
- * The grade boundaries for this subject, in the order a student reads them:
- * the percentage band, then the raw mark for the latest sitting they can
- * compare against. Nothing here is presented as an official HKEAA promise —
- * a cut-off is the last mark that earned the grade, for one particular year.
+ * The grade boundaries for this subject. The whole-subject row comes first;
+ * then any per-paper boundaries the source publishes (Chinese, English), so a
+ * Paper 1 score can be read against the boundary for that paper rather than
+ * against the combined subject. Nothing here is an official promise — a
+ * boundary is the last mark that earned the grade in one sitting.
  */
 function cutoffNote(subject) {
   if (!subject || usesAttainment(subject)) return '';
   const record = cutoffFor(subject.code);
   if (!record) return '';
-  const bands = ['7', '6', '5', '4', '3', '2']
-    .map((level) => {
-      const p = record.percent?.[{ 7: '5**', 6: '5*', 5: '5', 4: '4', 3: '3', 2: '2' }[level]];
-      return Number.isFinite(p)
-        ? `<span class="cut-tag"><b>${lvlLabel(Number(level))}</b> ${Math.round(p)}%</span>`
-        : '';
+
+  const perPaper = ['P1', 'P2', 'P3', 'P4']
+    .map((paper) => {
+      const p = paperCutoffFor(subject.code, paper);
+      // Only show papers the student can actually sit, and only if they have data.
+      if (!p?.percent || p.latestYear < 2020) return '';
+      return gradeRow(p, `${paper} only`);
     })
     .join('');
+
   return `<div class="cut-note">
     <div class="cut-head">
       <b>Grade boundaries</b>
-      <span class="muted">${esc(record.recentFrom)}–${esc(record.recentTo)} mean, ${esc(subject.code)}</span>
+      <span class="muted">${esc(record.recentFrom)}–${esc(record.recentTo)} mean · ${esc(subject.code)}</span>
+      <span class="spacer"></span>
+      <span class="cut-key"><i></i> % needed <span class="cut-key-raw">· raw / total</span></span>
     </div>
-    <div class="cut-tags">${bands}</div>
+    ${gradeRow(record, 'Whole subject')}
+    ${perPaper ? `<div class="bd-extra">${perPaper}</div>` : ''}
     <div class="cut-foot">
       From <a href="${CUTOFF_SOURCE.url}" target="_blank" rel="noopener noreferrer">${esc(CUTOFF_SOURCE.name)}</a>.
       A boundary is the last mark that earned the grade in that year, not a prediction for yours.
     </div>
   </div>`;
+}
+
+/**
+ * What the current grade bands call the student's evidence. Recomputed every
+ * time it is asked for, so after saving bands the answer is never stale.
+ * Returns null when there is nothing to average yet.
+ */
+export function subjectStanding(subject) {
+  if (!subject) return null;
+  if (usesAttainment(subject)) {
+    const attr = subjectAttainment(subject);
+    return { kind: 'attainment', value: attr.value, source: attr.source, average: subjectPct(subject.id) };
+  }
+  const average = subjectPct(subject.id);
+  if (average === null) return null;
+  const level = levelFromPercentage(average, subject);
+  const next = nextBand(average, subject);
+  return {
+    kind: 'level',
+    average,
+    level,
+    next: next && next.level <= 7 ? next : null
+  };
+}
+
+/** A one-line summary used in toasts and at the top of the subject dialog. */
+export function standingLine(subject, standing = subjectStanding(subject)) {
+  if (!standing) {
+    return 'No marked papers yet — log one and the predicted grade will appear here.';
+  }
+  if (standing.kind === 'attainment') {
+    return standing.value
+      ? `Your evidence predicts ${attainmentLabel(standing.value)}.`
+      : 'No Attained / Not attained evidence yet.';
+  }
+  const gap = standing.next
+    ? ` · ${standing.next.need} more percentage points reaches ${lvlLabel(standing.next.level)}, using the boundaries above.`
+    : ' · already at the top boundary.';
+  return `Your average is ${pct(standing.average)} → predicted ${lvlLabel(standing.level)}${gap}`;
 }
 
 export function renderPapers() {
@@ -70,6 +144,7 @@ export function renderPapers() {
   const best = logs.reduce((a, p) => Math.max(a, p.estimatedLevel || 0), 0);
   const pred = subjectPrediction(subject);
   const attainPred = subjectAttainment(subject);
+  const standing = subjectStanding(subject);
   const completion = Math.round((logs.length / (years.length * papers.length)) * 100);
 
   const errors = state.data.errors.filter(
@@ -129,9 +204,33 @@ export function renderPapers() {
       </div>
 
       ${
-        // Where the grade boundaries came from, and what they mean in marks.
-        // Shown above the matrix so a score can be read against a real boundary.
+        // Where the grade boundaries came from, what they mean in marks, and
+        // what they currently call this student's evidence. The last part is
+        // recomputed on every render, so saving new bands updates it at once.
         cutoffNote(subject)
+      }
+      ${
+        standing
+          ? `<div class="standing${standing.kind === 'level' && standing.level >= 6 ? ' is-high' : ''}">
+              <span class="standing-label">Predicted from your marks</span>
+              <span class="standing-value">${
+                standing.kind === 'attainment'
+                  ? attainmentLabel(standing.value)
+                  : lvlLabel(standing.level)
+              }</span>
+              <span class="standing-note">${esc(
+                standing.kind === 'attainment'
+                  ? standing.value
+                    ? 'Based on your latest marked paper.'
+                    : 'No Attained / Not attained evidence yet.'
+                  : `Average ${pct(standing.average)}${
+                      standing.next
+                        ? ` · ${standing.next.need} points to ${lvlLabel(standing.next.level)}`
+                        : ' · at the top boundary'
+                    }`
+              )}</span>
+            </div>`
+          : ''
       }
 
       <div class="subject-tabs" role="group" aria-label="Choose subject">

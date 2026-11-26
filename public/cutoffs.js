@@ -120,3 +120,34 @@ export function cutoffSummary(code, paper = null) {
     recentTo: record.recentTo
   };
 }
+
+/**
+ * Grade bands for one specific sitting, when the source published them. A 2014
+ * script was marked against 2014 boundaries, so using a 2024–26 mean for it
+ * would overstate the grade. Returns null when there is no data for that year,
+ * so the caller falls back to the averaged bands.
+ */
+export function cutoffBandsForYear(code, year) {
+  const subject = cutoffFor(code);
+  const y = Number(year);
+  if (!subject || !Number.isFinite(y)) return null;
+  const row = subject.byYear?.[String(y)];
+  if (!row?.percent) return null;
+  const bands = {};
+  let ok = false;
+  for (const level of [2, 3, 4, 5, 6, 7]) {
+    const raw = Number(row.percent[GRADE_KEY[level]]);
+    if (Number.isFinite(raw) && raw > 0 && raw < 100) {
+      bands[level] = Math.round(raw);
+      ok = true;
+    }
+  }
+  if (!ok) return null;
+  let previous = 0;
+  for (const level of [2, 3, 4, 5, 6, 7]) {
+    if (bands[level] === undefined) continue;
+    bands[level] = Math.max(bands[level], previous + 1);
+    previous = bands[level];
+  }
+  return bands;
+}

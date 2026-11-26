@@ -5,7 +5,7 @@
 import {
   $, $$, esc, icon, state, api, refresh, hooks, toast, openModal, closeModal,
   applyTheme, toggleTheme, submitting, errorText, subjectById, subjectPrediction, papersOf, papersFor,
-  papersForYear, matrixPapersFor, OTHER_SOURCES, BAND_LEVELS, bandsFor, levelFromPercentage, pct,
+  papersForYear, matrixPapersFor, OTHER_SOURCES, BAND_LEVELS, bandsFor, resetBandCache, levelFromPercentage, nextBand, pct,
   lvlLabel, lvlChip, fmtDate, toLocalInput, daysUntil, subjectDsePct,
   usesAttainment, CSD_CODE, CSD_FIRST_YEAR, yearsFor, otherSourceLabel
 } from './lib.js';
@@ -45,6 +45,49 @@ const CATALOG = [
 ];
 
 /* ------------------------------- delegated UI ------------------------------ */
+
+/**
+ * Delete one attempt and reconcile the screen with the server.
+ *
+ * The id alone is not enough: the matrix upserts a cell, so the row the browser
+ * last saw can already have been replaced. Sending the cell as well lets the
+ * server find it anyway. Whatever happens, the page is re-read from the server
+ * afterwards, so a failed delete can never leave a stale grade behind.
+ */
+async function deleteAttempt(id, cell) {
+  const body = cell
+    ? { subjectId: cell.subjectId, year: Number(cell.year), paper: cell.paper }
+    : undefined;
+  try {
+    const data = await api(`/papers/${id}`, { method: 'DELETE', body });
+    await refresh(data);
+    reportGone(cell);
+    toast('Attempt removed.');
+  } catch (err) {
+    // 404 means it was already gone — the outcome the student wanted.
+    if (err.status === 404) {
+      await refresh();
+      reportGone(cell);
+      toast('That attempt was already gone. Refreshed.');
+      return;
+    }
+    await refresh().catch(() => {});
+    toast(errorText(err), 'error');
+  }
+}
+
+/** After a delete, say so plainly if the cell is somehow still showing. */
+function reportGone(cell) {
+  if (!cell) return false;
+  const still = state.data.papers.some(
+    (p) =>
+      p.subjectId === cell.subjectId &&
+      Number(p.year) === Number(cell.year) &&
+      p.paper === cell.paper
+  );
+  if (still) toast('That cell is still on the server. Reload and try again.', 'error');
+  return !still;
+}
 
 const HANDLERS = {
   'toggle-theme': () => {
@@ -91,9 +134,8 @@ const HANDLERS = {
 
   'delete-paper': async (el) => {
     if (!confirm('Delete this paper attempt?')) return;
-    const data = await api(`/papers/${el.dataset.id}`, { method: 'DELETE' });
-    await refresh(data);
-    toast('Attempt removed.');
+    const row = state.data.papers.find((p) => p.id === el.dataset.id);
+    await deleteAttempt(el.dataset.id, row);
   },
 
   // Deleting from the matrix goes by cell, so a duplicate row cannot survive.
@@ -106,23 +148,7 @@ const HANDLERS = {
       (p) => p.subjectId === subjectId && Number(p.year) === year && p.paper === paper
     );
     if (!matches.length) return;
-    // One row is enough: the server clears the whole cell. Asking per row would
-    // also fail on a stale id, which is how a "deleted" score used to linger.
-    let data;
-    try {
-      data = await api(`/papers/${matches[0].id}`, { method: 'DELETE' });
-    } catch (err) {
-      toast(errorText(err), 'error');
-      return;
-    }
-    await refresh(data);
-    if (state.data.papers.some((p) => p.subjectId === subjectId && Number(p.year) === year && p.paper === paper)) {
-      // Extremely defensive: the cell is still there, so say so rather than
-      // claiming success while the score is on screen.
-      toast('Could not remove that cell. Reload and try again.', 'error');
-      return;
-    }
-    toast('Attempt removed.');
+    await deleteAttempt(matches[0].id, { subjectId, year, paper });
   },
 
   'new-error': () => openErrorModal(),
@@ -532,7 +558,10 @@ function openPaperModal({ subjectId, year, paper, paper: paperRecord } = {}) {
           if (usesAttainment(subject)) {
             attainField.value = p >= 50 ? 'attained' : 'unattained';
           } else {
-            levelField.value = String(levelFromPercentage(p, subject));
+            // Grade against the boundaries for the year being logged, so an old
+            // script is not judged by the latest sitting's cut-offs.
+            const bands = bandsForYear(subject, Number(yearField.value));
+            levelField.value = String(levelFromPercentageWith(p, bands));
           }
         }
       });
@@ -579,14 +608,28 @@ function openPaperModal({ subjectId, year, paper, paper: paperRecord } = {}) {
           if (!confirm('Delete this attempt?')) return;
           const btn = dialog.querySelector('[data-delete]');
           const restore = submitting(btn, 'Deleting…');
+          // Send the cell too, so a row id that has since been replaced still
+          // deletes the right cell. Refresh before closing, so the old grade
+          // never flashes back onto the page.
+          const body = {
+            subjectId: dialog.querySelector('#pf-subject').value,
+            year: Number(dialog.querySelector('#pf-year').value),
+            paper: dialog.querySelector('#pf-paper').value
+          };
           try {
-            const data = await api(`/papers/${existing.id}`, { method: 'DELETE' });
-            // Refresh first, then close: the matrix is already correct when the
-            // dialog disappears, so the old score never flashes back.
+            const data = await api(`/papers/${existing.id}`, { method: 'DELETE', body });
             await refresh(data);
             closeModal();
+            reportGone(body);
             toast('Attempt removed.');
           } catch (err) {
+            if (err.status === 404) {
+              await refresh();
+              closeModal();
+              reportGone(body);
+              toast('That attempt was already gone. Refreshed.');
+              return;
+            }
             restore();
             toast(errorText(err), 'error');
           }
@@ -1032,6 +1075,11 @@ function openSubjectModal(subject = null) {
           <span class="hint" id="sj-band-hint"></span>
           <span class="hint" id="sj-band-source"></span>
         </div>
+        <div class="pred-box" id="sj-pred-box" hidden>
+          <span class="pred-box-label">Predicted grade with these bands</span>
+          <span class="pred-box-value" id="sj-pred-value">—</span>
+          <span class="pred-box-note" id="sj-pred-note"></span>
+        </div>
       </form>`,
     footer: `<button class="btn btn-quiet" data-close type="button">Cancel</button>
       <button class="btn btn-primary" type="submit" form="subject-form">${subject ? 'Save' : 'Add subject'}</button>`,
@@ -1067,15 +1115,33 @@ function openSubjectModal(subject = null) {
             : 'Starting bands are a general estimate. Add a subject with published cut-offs, or tune these to your school’s conversions.';
         }
 
-        if (!bandHint) return;
-        const target = subject || { code: codeSelect?.value, gradeBands: readBands() };
+        const box = dialog.querySelector('#sj-pred-box');
+        const valueEl = dialog.querySelector('#sj-pred-value');
+        const noteEl = dialog.querySelector('#sj-pred-note');
         const average = subjectDsePct(subject?.id);
-        if (average === null) {
-          bandHint.textContent = '';
-          return;
+        const withTheseBands = { ...(subject || { code: codeSelect?.value }), gradeBands: readBands() };
+
+        // Show the prediction before saving, so the numbers can be adjusted
+        // without a round-trip. Hidden for a subject with no marked papers.
+        if (box && valueEl && noteEl) {
+          if (average === null) {
+            box.hidden = true;
+          } else {
+            box.hidden = false;
+            const level = levelFromPercentage(average, withTheseBands);
+            const next = nextBand(average, withTheseBands);
+            valueEl.textContent = lvlLabel(level);
+            valueEl.className = `pred-box-value lvl-text-${level}`;
+            noteEl.textContent = `Your DSE average is ${pct(average)}${
+              next && next.level <= 7
+                ? ` · ${next.need} percentage points reaches ${lvlLabel(next.level)}`
+                : ' · at the top boundary'
+            }`;
+          }
         }
-        const level = levelFromPercentage(average, { ...target, gradeBands: readBands() });
-        bandHint.textContent = `Your DSE average is ${pct(average)} → ${lvlLabel(level)} with these bands.`;
+
+        if (!bandHint) return;
+        bandHint.textContent = '';
       };
 
       bandInputs.forEach((input) => input.addEventListener('input', paintBandHint));
@@ -1120,7 +1186,19 @@ function openSubjectModal(subject = null) {
             const data = await api(`/subjects/${subject.id}`, { method: 'PATCH', body });
             closeModal();
             await refresh(data);
-            toast('Subject updated.');
+            // Always say what the saved bands now predict, so the result of
+            // pressing Save is visible without hunting for it on the page.
+            resetBandCache();
+            const saved = subjectById(subject.id);
+            const nowAvg = subjectDsePct(subject.id);
+            if (csd) {
+              toast('Subject updated.');
+            } else if (nowAvg === null) {
+              toast('Bands saved. Log a paper to see the predicted grade.');
+            } else {
+              const nowLevel = levelFromPercentage(nowAvg, saved);
+              toast(`Bands saved — ${pct(nowAvg)} average now predicts ${lvlLabel(nowLevel)}.`);
+            }
           } else {
             const code = dialog.querySelector('#sj-code').value;
             const custom = dialog.querySelector('#sj-custom')?.value || '';
@@ -1146,6 +1224,7 @@ function openSubjectModal(subject = null) {
             const data = await api('/subjects', { method: 'POST', body });
             closeModal();
             await refresh(data);
+            resetBandCache();
             toast('Subject added.');
           }
         } catch (err) {

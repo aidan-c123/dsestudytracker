@@ -210,7 +210,40 @@ const store = {
   },
 
   async removePaper(userId, paperId) {
-    if (findOwned('pastPapers', userId, paperId)) data.pastPapers.delete(paperId);
+    const doc = findOwned('pastPapers', userId, paperId);
+    if (!doc) return 0;
+    // Mirror the real store: clear the whole cell, so a duplicate row cannot
+    // leave the old grade on screen.
+    let removed = 0;
+    for (const [key, row] of data.pastPapers) {
+      if (
+        row.userId === userId &&
+        row.subjectId === doc.subjectId &&
+        row.year === doc.year &&
+        row.paper === doc.paper
+      ) {
+        data.pastPapers.delete(key);
+        removed += 1;
+      }
+    }
+    return removed;
+  },
+
+  async removePaperCell(userId, { subjectId, year, paper }) {
+    if (!subjectId || !Number.isFinite(Number(year)) || !paper) return 0;
+    let removed = 0;
+    for (const [key, row] of data.pastPapers) {
+      if (
+        row.userId === userId &&
+        row.subjectId === subjectId &&
+        row.year === Number(year) &&
+        row.paper === paper
+      ) {
+        data.pastPapers.delete(key);
+        removed += 1;
+      }
+    }
+    return removed;
   },
 
   async addLog(userId, input) {

@@ -313,18 +313,34 @@ export async function patchPaper(userId, paperId, patch) {
 export async function removePaper(userId, paperId) {
   const db = await getDb();
   const _id = oid(paperId);
-  if (!_id) return;
+  if (!_id) return 0;
   // Delete the whole cell, not just the row the browser knew about. Older
   // databases can hold duplicate rows for one cell (created before the unique
   // index existed), and deleting one would leave the score on screen.
   const doc = await db.collection('pastPapers').findOne({ _id, userId });
-  if (!doc) return;
-  await db.collection('pastPapers').deleteMany({
-    userId,
+  if (!doc) return 0;
+  return removePaperCell(userId, {
     subjectId: doc.subjectId,
     year: doc.year,
     paper: doc.paper
   });
+}
+
+/**
+ * Delete a whole matrix cell. Used both by the normal delete and as the
+ * fallback when a browser sends an id that no longer exists (the row was
+ * replaced by an upsert), which is how a "deleted" score used to survive.
+ */
+export async function removePaperCell(userId, { subjectId, year, paper }) {
+  if (!subjectId || !Number.isFinite(Number(year)) || !paper) return 0;
+  const db = await getDb();
+  const result = await db.collection('pastPapers').deleteMany({
+    userId,
+    subjectId,
+    year: Number(year),
+    paper
+  });
+  return result.deletedCount || 0;
 }
 
 /* ------------------------------ other papers ------------------------------
