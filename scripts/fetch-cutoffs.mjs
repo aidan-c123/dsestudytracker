@@ -109,8 +109,12 @@ function isValidRow(values) {
  * Turn one subject's `{ year: [full, 5**, 5*, 5, 4, 3, 2] }` map into the shape
  * the app reads. Percentages are computed per year, then averaged over the
  * most recent sittings so a single unlucky paper does not become the default.
+ *
+ * Five sittings is the default because that is the stretch shown on the Papers
+ * tab. Keeping history for every subject is what lets the strip say "mean of
+ * 2022–2026" rather than quoting whatever the shipped file happened to store.
  */
-function summarise(entry, { keepHistory = true, recentCount = 3 } = {}) {
+function summarise(entry, { keepHistory = true, recentCount = 5 } = {}) {
   const perYear = {};
   for (const [year, values] of Object.entries(entry.cutoff || {})) {
     const y = Number(year);
@@ -219,7 +223,10 @@ async function main() {
     for (const entry of entries) {
       const key = paperKey(entry.title);
       if (!key) continue;
-      const summary = summarise(entry, { keepHistory: false });
+      // Keep each paper's own history. Without it the strip can only say
+      // "last three years" from the pre-averaged figures, and the mean shown
+      // would not match the five-sitting mean used everywhere else.
+      const summary = summarise(entry);
       // A paper that stopped being examined years ago is not a useful default.
       if (!summary || summary.latestYear < 2020) continue;
       papers[key] = { ...summary, title: entry.title };

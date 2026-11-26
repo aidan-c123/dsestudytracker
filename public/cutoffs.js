@@ -150,8 +150,19 @@ export function paperCutoffFor(code, paper) {
 export function recentPaperBoundaries(code, paper) {
   const record = paperCutoffFor(code, paper);
   if (!record?.percent) return null;
+
+  // Each paper stores its own history now, so its mean comes from its own last
+  // five sittings. Older files kept only pre-averaged figures, which is why
+  // the fallback below still exists.
+  if (record.byYear) {
+    const fromHistory = meanFromYears(record.byYear, 5);
+    if (fromHistory) {
+      return { ...fromHistory, fullMarks: record.fullMarks };
+    }
+  }
+
   const mean = {};
-  for (const grade of ['4', '5', '5*', '5**']) {
+  for (const grade of ['2', '3', '4', '5', '5*', '5**']) {
     const v = Number(record.percent[grade]);
     if (Number.isFinite(v) && v > 0 && v < 100) mean[grade] = v;
   }
@@ -197,14 +208,6 @@ export function paperBands(code, paper) {
 }
 
 /**
- * The five-sitting mean for one paper of one sitting, in the same shape as
- * recentBoundaries.
- */
-export function recentPaperBoundariesForYear(code, paper, year) {
-  return recentPaperBoundaries(code, paper);
-}
-
-/**
  * Grade bands as percentages, for the bands the app actually asks about
  * (Level 2…5**). Returns null when there is no data for that subject, so the
  * caller can fall back instead of inventing numbers.
@@ -213,8 +216,8 @@ export function cutoffBands(code) {
   const subject = cutoffFor(code);
   if (!subject?.percent) return null;
   // Prefer the five-sitting mean, so the boundaries on screen are the same
-  // numbers used to grade a paper. Falling back to the shipped three-sitting
-  // mean keeps working for a subject with very few published years.
+  // numbers used to grade a paper. Falling back to the shipped figures keeps
+  // working for a subject with only one published sitting.
   const recent = recentBoundaries(code);
   const source = recent?.mean || subject.percent;
   const bands = {};
@@ -257,8 +260,10 @@ export function cutoffSummary(code, paper = null) {
  * have nothing to do with the candidate (a harder paper, a different option
  * mix), so five years is the steadiest honest summary the source supports.
  *
- * Only the grades from 4 up are kept: those are the ones a candidate is
- * working toward, and a student chasing 5** does not need Level 2 restated.
+ * The strip only displays grades 4 and up, but Levels 3 and 2 are averaged here
+ * as well: the same figures decide whether a paper reaches Level 3 or 2, and
+ * leaving them out fell back to the generic 45/35 for every subject.
+ *
  * Returns null when fewer than two sittings exist, because an average of one
  * year is just that year wearing a longer label.
  */
@@ -266,7 +271,14 @@ export function recentBoundaries(code, { years = 5 } = {}) {
   const subject = cutoffFor(code);
   const all = subject?.byYear;
   if (!all) return null;
+  return meanFromYears(all, years);
+}
 
+/**
+ * Shared averaging for whole subjects and single papers. Both store history the
+ * same way, so both get the same five-sitting treatment.
+ */
+function meanFromYears(all, years) {
   const sittings = Object.keys(all)
     .filter((y) => all[y]?.percent)
     .sort()
@@ -274,7 +286,7 @@ export function recentBoundaries(code, { years = 5 } = {}) {
   if (sittings.length < 2) return null;
 
   const mean = {};
-  for (const grade of ['4', '5', '5*', '5**']) {
+  for (const grade of ['2', '3', '4', '5', '5*', '5**']) {
     const values = sittings
       .map((y) => Number(all[y].percent[grade]))
       .filter((v) => Number.isFinite(v) && v > 0 && v < 100);
@@ -284,7 +296,12 @@ export function recentBoundaries(code, { years = 5 } = {}) {
   }
   if (!Object.keys(mean).length) return null;
 
-  return { mean, from: sittings[0], to: sittings[sittings.length - 1], count: sittings.length };
+  return {
+    mean,
+    from: sittings[0],
+    to: sittings[sittings.length - 1],
+    count: sittings.length
+  };
 }
 
 /**

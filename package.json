@@ -8,7 +8,9 @@
     "node": ">=20"
   },
   "dependencies": {
-    "mongodb": "^6.10.0"
+    "jsdom": "^31.0.1",
+    "mongodb": "^6.22.0",
+    "sharp": "^0.35.5"
   },
   "scripts": {
     "dev": "vercel dev",

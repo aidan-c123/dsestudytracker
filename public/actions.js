@@ -14,7 +14,6 @@ import { cutoffFor, CUTOFF_SOURCE } from './cutoffs.js';
 import {
   startTimer, pauseTimer, resumeTimer, stopTimer, timerState, paintTimer, BREAK_MINUTES
 } from './timer.js';
-import { presetButtonsHTML } from './views/focus.js';
 
 /* --------------------------------- subjects -------------------------------- */
 
@@ -239,38 +238,12 @@ const HANDLERS = {
   'preset': (el) => {
     const minutes = Number(el.dataset.preset);
     state.timerPresetMinutes = minutes;
-    state.presetKey = '';
     const t = timerState();
     if (t.running) {
       startFocus(minutes);
       return;
     }
     paintTimer();
-  },
-  // A paper preset loads the exact exam length and tags the matching subject,
-  // so the time logged at the end is attributable without extra clicks.
-  'paper-preset': (el) => {
-    const minutes = Number(el.dataset.minutes);
-    const label = el.dataset.label || '';
-    if (!Number.isFinite(minutes) || minutes <= 0) return;
-    state.timerPresetMinutes = minutes;
-    state.presetKey = label;
-
-    const code = String(el.dataset.code || '').toUpperCase();
-    const match = state.data.subjects.find((s) => String(s.code || '').toUpperCase() === code);
-    if (match) {
-      state.timerSubject = match.id;
-      const select = $('#timer-subject');
-      if (select) select.value = match.id;
-    }
-
-    if (timerState().running) {
-      startFocus(minutes, label);
-      return;
-    }
-    // Re-render so the dial shows the real paper length before starting.
-    hooks.renderView?.();
-    toast(`${label} — ${minutes} minutes loaded.`);
   },
   'break': () => {
     startTimer({ minutes: BREAK_MINUTES, mode: 'break' });
@@ -939,7 +912,7 @@ function openOtherPaperModal(record = null) {
             <input id="op-date" type="date" value="${existing?.takenOn || today}" required />
           </div>
           <div class="field" id="op-grade-wrap">
-            <label for="op-level">Estimated DSE level</label>
+            <label for="op-level">Grade <span class="muted">(enter it yourself)</span></label>
             <select id="op-level" ${csd ? 'hidden' : ''}>
               <option value="">Not set</option>
               ${[7, 6, 5, 4, 3, 2, 1]
@@ -951,7 +924,11 @@ function openOtherPaperModal(record = null) {
               <option value="attained" ${existing?.attainment === 'attained' ? 'selected' : ''}>Attained</option>
               <option value="unattained" ${existing?.attainment === 'unattained' ? 'selected' : ''}>Not attained</option>
             </select>
-            <span class="hint" id="op-grade-hint">${csd ? 'CSD is reported as Attained / Not attained.' : ''}</span>
+            <span class="hint" id="op-grade-hint">${
+              csd
+                ? 'CSD is reported as Attained / Not attained.'
+                : 'A mock has no published DSE boundaries, so nothing is calculated — record whatever grade your marker gave.'
+            }</span>
           </div>
         </div>
         <div class="form-grid two">
@@ -963,6 +940,11 @@ function openOtherPaperModal(record = null) {
             <label for="op-max">Out of</label>
             <input id="op-max" type="number" min="0" step="0.5" value="${existing?.maxScore ?? ''}" placeholder="Total" />
           </div>
+        </div>
+        <div class="field">
+          <label for="op-pct">Percentage <span class="muted">(optional — from the score, or type it)</span></label>
+          <input id="op-pct" type="number" min="0" max="100" step="0.1" value="${existing?.percentage ?? ''}" placeholder="Percentage" />
+          <span class="hint" id="op-pct-hint">Leave blank if the paper was only graded, not scored.</span>
         </div>
         <div class="field">
           <label for="op-notes">Notes</label>
@@ -980,16 +962,34 @@ function openOtherPaperModal(record = null) {
       const gradeHint = dialog.querySelector('#op-grade-hint');
       const score = dialog.querySelector('#op-score');
       const max = dialog.querySelector('#op-max');
+      const pctField = dialog.querySelector('#op-pct');
+      let pctTouched = Boolean(existing?.percentage);
 
-      // The score-to-percentage preview is computed by the server; here we only
-      // keep the level out of the way when the subject is CSD.
+      // A mock has no published boundaries, so the percentage is either typed
+      // in or worked out from the marks. Nothing here guesses a grade from it.
+      const recalc = () => {
+        if (pctTouched) return;
+        const s = Number(score.value);
+        const m = Number(max.value);
+        if (score.value !== '' && m > 0) pctField.value = Math.round((s / m) * 1000) / 10;
+      };
+      score.addEventListener('input', recalc);
+      max.addEventListener('input', recalc);
+      pctField.addEventListener('input', () => {
+        pctTouched = true;
+      });
+
+      // Keep the grade field out of the way when the subject is CSD, which has
+      // no levels at all.
       const syncGrade = () => {
         const isCsd = usesAttainment(subjectById(subjectField.value));
         levelField.hidden = isCsd;
         levelField.disabled = isCsd;
         attainField.hidden = !isCsd;
         attainField.disabled = !isCsd;
-        gradeHint.textContent = isCsd ? 'CSD is reported as Attained / Not attained.' : '';
+        gradeHint.textContent = isCsd
+          ? 'CSD is reported as Attained / Not attained.'
+          : 'A mock has no published DSE boundaries, so nothing is calculated — record whatever grade your marker gave.';
       };
       subjectField.addEventListener('change', syncGrade);
       syncGrade();
@@ -1019,6 +1019,7 @@ function openOtherPaperModal(record = null) {
           takenOn: dialog.querySelector('#op-date').value,
           score: score.value === '' ? null : Number(score.value),
           maxScore: max.value === '' ? null : Number(max.value),
+          percentage: pctField.value === '' ? null : Number(pctField.value),
           estimatedLevel: levelField.value ? Number(levelField.value) : null,
           attainment: attainField.value || null,
           notes: dialog.querySelector('#op-notes').value
@@ -1253,13 +1254,12 @@ function openSubjectModal(subject = null) {
           <label>Grade bands <span class="muted">(% of marks needed)</span></label>
           <div class="band-grid" id="sj-bands">
             ${[...BAND_LEVELS].reverse().map(
-              (l) => `<label class="band-cell">
-                <span>${lvlLabel(l)}</span>
-                <input type="number" min="1" max="99" step="1" data-band="${l}" value="${bands[l]}" aria-label="${lvlLabel(l)} from percentage" />
-              </label>`
+              (l) => `<div class="band-cell">
+                <span class="band-lvl">${lvlLabel(l)}</span>
+                <span class="band-fixed" data-band="${l}">${bands[l]}</span>
+              </div>`
             ).join('')}
           </div>
-          <span class="hint" id="sj-band-hint"></span>
           <span class="hint" id="sj-band-source"></span>
         </div>
         <div class="pred-box" id="sj-pred-box" hidden>
@@ -1275,48 +1275,52 @@ function openSubjectModal(subject = null) {
       const levelFields = dialog.querySelector('#sj-level-fields');
       const attainField = dialog.querySelector('#sj-attain-field');
       const bandsField = dialog.querySelector('#sj-bands-field');
-      const bandHint = dialog.querySelector('#sj-band-hint');
-      const bandInputs = [...dialog.querySelectorAll('[data-band]')];
+      const bandCells = [...dialog.querySelectorAll('[data-band]')];
 
-      const readBands = () => {
-        const out = {};
-        for (const input of bandInputs) {
-          const v = Math.round(Number(input.value));
-          if (Number.isFinite(v) && v > 0 && v < 100) out[input.dataset.band] = v;
-        }
-        return out;
+      /**
+       * Show the bands this subject is actually graded against. They are read
+       * from the published figures and cannot be typed over: a DSE paper is
+       * graded by the exam's boundaries, not by the student's opinion of them.
+       * The values still follow the subject choice, because the dialog opens
+       * before one is picked.
+       */
+      const fillBands = (code) => {
+        // A custom "Other" subject has no published rows, so it shows the
+        // neutral set rather than inheriting whichever subject was picked last.
+        const target = String(code || '').toUpperCase() === 'OTHER' ? {} : { code: String(code || '').toUpperCase() };
+        const next = bandsFor(target);
+        for (const cell of bandCells) cell.textContent = String(next[Number(cell.dataset.band)]);
       };
 
-      // The hint is the honest part: it says what the current bands would call
-      // the student's own average, so a bad calibration is visible immediately.
+      // The hint is the honest part: it says where the numbers come from, and
+      // what they would call the student's own average, so a bad calibration is
+      // visible immediately.
       const paintBandHint = () => {
-        // Say where the numbers came from, so nobody mistakes them for official
-        // HKEAA boundaries. The DSE00 tables are real published marks, but a
-        // grade boundary is still the last mark that got that grade, not a
-        // promise about next year.
         const source = dialog.querySelector('#sj-band-source');
+        const code = subject ? subject.code : codeSelect?.value;
         if (source) {
-          const record = cutoffFor(subject ? subject.code : codeSelect?.value);
+          const record = cutoffFor(code);
           source.innerHTML = record
-            ? `Starting bands come from ${CUTOFF_SOURCE.name} (${esc(record.recentFrom)}–${esc(record.recentTo)} sittings). <a href="${CUTOFF_SOURCE.url}" target="_blank" rel="noopener noreferrer">Source</a> · a grade boundary is the last mark that earned it, so tune these if your school marks differently.`
-            : 'Starting bands are a general estimate. Add a subject with published cut-offs, or tune these to your school’s conversions.';
+            ? `Fixed by ${CUTOFF_SOURCE.name} (mean of the ${esc(record.recentFrom)}–${esc(record.recentTo)} sittings). <a href="${CUTOFF_SOURCE.url}" target="_blank" rel="noopener noreferrer">Source</a> · a grade boundary is the last mark that earned it, not a promise about next year.`
+            : 'No published DSE boundaries reach this subject, so these are neutral starting points. They are not editable — a mock’s grade is recorded by hand instead.';
         }
 
         const box = dialog.querySelector('#sj-pred-box');
         const valueEl = dialog.querySelector('#sj-pred-value');
         const noteEl = dialog.querySelector('#sj-pred-note');
         const average = subjectDsePct(subject?.id);
-        const withTheseBands = { ...(subject || { code: codeSelect?.value }), gradeBands: readBands() };
+        const gradedAs = subject || { code };
 
-        // Show the prediction before saving, so the numbers can be adjusted
-        // without a round-trip. Hidden for a subject with no marked papers.
+        // Show what the published bands call the student's own average, so the
+        // effect of the boundaries is visible without a round-trip. Hidden for
+        // a subject with no marked papers.
         if (box && valueEl && noteEl) {
           if (average === null) {
             box.hidden = true;
           } else {
             box.hidden = false;
-            const level = levelFromPercentage(average, withTheseBands);
-            const next = nextBand(average, withTheseBands);
+            const level = levelFromPercentage(average, gradedAs);
+            const next = nextBand(average, gradedAs);
             valueEl.textContent = lvlLabel(level);
             valueEl.className = `pred-box-value lvl-text-${level}`;
             noteEl.textContent = `Your DSE average is ${pct(average)}${
@@ -1326,12 +1330,7 @@ function openSubjectModal(subject = null) {
             }`;
           }
         }
-
-        if (!bandHint) return;
-        bandHint.textContent = '';
       };
-
-      bandInputs.forEach((input) => input.addEventListener('input', paintBandHint));
 
       // CSD has no levels at all, so the grading fields swap rather than adapt.
       const syncGradeFields = (code) => {
@@ -1346,9 +1345,14 @@ function openSubjectModal(subject = null) {
           const wrap = dialog.querySelector('#sj-custom-wrap');
           wrap.hidden = codeSelect.value !== 'OTHER';
           syncGradeFields(codeSelect.value);
+          // A different subject has different published boundaries, so the
+          // figures follow the choice instead of staying on the first one.
+          fillBands(codeSelect.value);
+          paintBandHint();
         });
       }
       syncGradeFields(subject ? subject.code : codeSelect?.value);
+      if (!subject && codeSelect?.value) fillBands(codeSelect.value);
       paintBandHint();
 
       dialog.querySelector('#subject-form').addEventListener('submit', async (e) => {
@@ -1368,7 +1372,10 @@ function openSubjectModal(subject = null) {
                   ? Number(dialog.querySelector('#sj-predicted').value)
                   : null,
               attainment: csd ? dialog.querySelector('#sj-attain').value || null : null,
-              gradeBands: csd ? null : readBands()
+              // Bands are not a setting any more. Sending null on every save
+              // also clears any set an earlier version stored, so an old record
+              // stops grading against numbers the exam never published.
+              gradeBands: null
             };
             const data = await api(`/subjects/${subject.id}`, { method: 'PATCH', body });
             closeModal();
@@ -1381,10 +1388,10 @@ function openSubjectModal(subject = null) {
             if (csd) {
               toast('Subject updated.');
             } else if (nowAvg === null) {
-              toast('Bands saved. Log a paper to see the predicted grade.');
+              toast('Saved. Log a paper to see the predicted grade.');
             } else {
               const nowLevel = levelFromPercentage(nowAvg, saved);
-              toast(`Bands saved — ${pct(nowAvg)} average now predicts ${lvlLabel(nowLevel)}.`);
+              toast(`Saved — ${pct(nowAvg)} average now predicts ${lvlLabel(nowLevel)}.`);
             }
           } else {
             const code = dialog.querySelector('#sj-code').value;
@@ -1406,7 +1413,7 @@ function openSubjectModal(subject = null) {
                   : null,
               attainment: csd ? dialog.querySelector('#sj-attain').value || null : null,
               examDate: dialog.querySelector('#sj-exam').value || null,
-              gradeBands: csd ? null : readBands()
+              gradeBands: null
             };
             const data = await api('/subjects', { method: 'POST', body });
             closeModal();
@@ -1430,16 +1437,6 @@ export function bindViewExtras(host) {
   if (timerSelect) {
     timerSelect.addEventListener('change', () => {
       state.timerSubject = timerSelect.value;
-    });
-  }
-
-  // Live search over paper presets: filter in place so the input keeps focus.
-  const presetSearch = host.querySelector('[data-preset-search]');
-  const presetList = host.querySelector('#preset-list');
-  if (presetSearch && presetList) {
-    presetSearch.addEventListener('input', () => {
-      state.presetQuery = presetSearch.value;
-      presetList.innerHTML = presetButtonsHTML(state.presetQuery);
     });
   }
 

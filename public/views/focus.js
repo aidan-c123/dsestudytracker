@@ -7,39 +7,6 @@ import {
   subjectById, fmtDate, rangeMinutes, subjectPrediction, lvlLabel
 } from '../lib.js';
 import { PRESETS, BREAK_MINUTES, timerState } from '../timer.js';
-import { PAPER_PRESETS, searchPresets, presetLabel } from '../presets.js';
-
-/* ---------------------------- paper presets ------------------------------- */
-
-/**
- * Presets are limited to papers the student actually sits, so the list is
- * short and relevant. If nothing matches (custom subjects), all are shown.
- */
-export function presetPool() {
-  const codes = new Set(state.data.subjects.map((s) => String(s.code || '').toUpperCase()));
-  const mine = PAPER_PRESETS.filter((p) => codes.has(p.code));
-  return mine.length ? mine : PAPER_PRESETS;
-}
-
-export function presetButtonsHTML(query = '') {
-  const matches = searchPresets(query, presetPool());
-  if (!matches.length) {
-    return `<div class="empty" style="grid-column:1/-1"><b>No paper matches “${esc(query)}”.</b>Try a subject, a paper number or a length in minutes.</div>`;
-  }
-  const active = !timerState().running && state.presetKey;
-  return matches
-    .map(
-      (p) => `<button type="button" class="preset preset-paper" role="listitem"
-        data-act="paper-preset" data-minutes="${p.minutes}" data-label="${esc(presetLabel(p))}"
-        data-code="${p.code}"
-        aria-pressed="${active === presetLabel(p) ? 'true' : 'false'}">
-        <span class="preset-title">${esc(p.subject)} · ${esc(p.paper)}</span>
-        <span class="preset-meta">${esc(p.name)}</span>
-        <span class="preset-mins">${fmtMinutes(p.minutes)}</span>
-      </button>`
-    )
-    .join('');
-}
 
 export function renderFocus() {
   const t = timerState();
@@ -86,15 +53,6 @@ export function renderFocus() {
               ${subjectOptions}
             </select>
           </div>
-        </div>
-
-        <div class="preset-picker">
-          <div class="field">
-            <label class="field-label" for="preset-search">Paper preset</label>
-            <input id="preset-search" type="search" data-preset-search placeholder="Search a paper — e.g. Chinese P2, maths, 120" autocomplete="off" ${t.running ? 'disabled' : ''} />
-          </div>
-          <div class="preset-list" id="preset-list" role="list">${presetButtonsHTML(state.presetQuery || '')}</div>
-          <p class="card-note" id="preset-note">Real paper lengths. Tap one to load it with the exact exam time.</p>
         </div>
 
         <div class="dial">

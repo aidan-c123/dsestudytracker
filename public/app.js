@@ -138,8 +138,8 @@ export function renderView() {
   host.innerHTML = (VIEWS[state.view] || renderDesk)();
   syncNav();
   bindViewExtras(host);
-  // A paper preset sets the subject before the view is rebuilt, so the select
-  // has to be reseeded or the tag would silently fall back to "No subject".
+  // The subject tag outlives a re-render, so reseed the select from state or it
+  // would silently fall back to "No subject".
   const timerSelect = host.querySelector('[data-timer-subject]');
   if (timerSelect && state.timerSubject) timerSelect.value = state.timerSubject;
   paintCountdown();

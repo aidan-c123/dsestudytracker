@@ -267,13 +267,51 @@ check('the subject picker lists electives, not the cores already added', () => {
   if (codes.includes('MATH')) throw new Error('already-added Mathematics should not be offered');
 });
 
+/* The dialog opens before a subject is chosen, so the bands must be recomputed
+   when the choice changes. They used to be read once, at open, which meant every
+   new subject started on the generic 85/75/65 fallback instead of its own
+   published boundaries. */
+const bandValue = (level) => Number(modal().querySelector(`[data-band="${level}"]`).value);
+check('choosing a subject fills in its own published boundaries', () => {
+  $('#sj-code').value = 'BIOL';
+  $('#sj-code').dispatchEvent(new window.Event('change', { bubbles: true }));
+  const top = bandValue(7);
+  if (top === lib.DEFAULT_BANDS[7]) {
+    throw new Error(`Biology still shows the generic ${top}% instead of its cut-offs`);
+  }
+  // Biology's five-year 5** sits near 79%.
+  if (top < 74 || top > 84) throw new Error(`Biology 5** looks wrong: ${top}%`);
+});
+
+check('switching subject changes the bands to that subject’s', () => {
+  const bio = bandValue(7);
+  $('#sj-code').value = 'CHEM';
+  $('#sj-code').dispatchEvent(new window.Event('change', { bubbles: true }));
+  const chem = bandValue(7);
+  if (chem === bio) throw new Error(`Chemistry and Biology both show ${chem}%`);
+  // Chemistry's 5** sits near 92%.
+  if (chem < 88) throw new Error(`Chemistry 5** should be around 92%, got ${chem}%`);
+  $('#sj-code').value = 'BIOL';
+  $('#sj-code').dispatchEvent(new window.Event('change', { bubbles: true }));
+});
+
 // Fill and submit the dialog exactly as a student would.
-$('#sj-code').value = 'BIOL';
-$('#sj-code').dispatchEvent(new window.Event('change', { bubbles: true }));
 $('#sj-target').value = '6';
 modal().querySelector('#subject-form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
 await tick();
 await tick();
+
+check('an untouched band set is not saved, so the cut-offs keep winning', () => {
+  const saved = db.subjects.find((s) => s.code === 'BIOL');
+  if (!saved) throw new Error('subject was not saved');
+  if (saved.gradeBands) {
+    throw new Error(`untouched bands were stored as ${JSON.stringify(saved.gradeBands)}, ` +
+      'which overrides the published boundaries for good');
+  }
+  // And the app therefore still grades Biology on its real cut-offs.
+  const bands = lib.bandsFor({ code: 'BIOL' });
+  if (bands[7] === lib.DEFAULT_BANDS[7]) throw new Error('Biology fell back to the generic bands');
+});
 
 check('submitting the dialog saves the subject and closes', () => {
   if (modal()) throw new Error('dialog stayed open');
@@ -673,10 +711,15 @@ check('a subject with no published boundaries still gets a labelled strip', () =
   if (note.textContent.includes('DSE00')) {
     throw new Error('it credits a source that published nothing for this subject');
   }
-  if (!note.querySelector('.cut-adjust')) throw new Error('no way to adjust them');
+  // The box reports published figures only, so there is nothing here to adjust:
+  // owning bands changes the grade a paper gets, never what the exam required.
+  if (note.querySelector('.cut-adjust')) {
+    throw new Error('the strip offers to adjust figures it can no longer change');
+  }
 });
 
-/* A student's own bands win, and the strip says so. */
+/* A student's own bands change how a paper is graded, but must never rewrite the
+   published figures in this box. */
 va.gradeBands = { 2: 18, 3: 28, 4: 38, 5: 48, 6: 58, 7: 68 };
 lib.resetBandCache();
 const inState = lib.state.data.subjects.find((s) => s.id === 's-va');
@@ -689,14 +732,19 @@ document.querySelector('[data-act="pick-subject"][data-id="s-va"]')?.dispatchEve
 );
 await tick();
 
-check('a tuned subject shows the student’s own numbers', () => {
+check('a tuned subject does not rewrite the DSE figures in the strip', () => {
   const note = document.querySelector('.cut-note');
   if (!note) throw new Error('no strip');
-  if (!note.textContent.includes('your own bands')) throw new Error('it does not say whose bands these are');
+  if (note.textContent.includes('your own bands')) {
+    throw new Error('the strip still claims to show the student’s own bands');
+  }
   const values = [...note.querySelectorAll('.cut-pct')].map((el) =>
     Number(el.textContent.replace('%', ''))
   );
-  if (values.join(',') !== '68,58,48,38') throw new Error(`expected the student's bands, got ${values}`);
+  if (values.join(',') === '68,58,48,38') {
+    throw new Error('the student’s bands moved the published figures');
+  }
+  if (!values.length) throw new Error('the strip lost its figures');
 });
 
 /* --- A paper is graded on its own boundaries, not the subject blend ------- */
@@ -725,10 +773,33 @@ check('a subject with no per-paper rows grades exactly as before', () => {
   }
 });
 
-check('a student’s own bands still win over per-paper rows', () => {
-  const tuned = { code: 'CHIN', gradeBands: { 2: 20, 3: 30, 4: 40, 5: 50, 6: 60, 7: 70 } };
-  const bands = lib.bandsForPaper(tuned, 'P1', 2026);
-  if (bands[7] !== 70) throw new Error(`expected the student's 70%, got ${bands[7]}%`);
+/* Subjects added before the dialog was fixed saved the generic set as though it
+   had been chosen, which then overrode the published boundaries for good. */
+check('a leftover copy of the generic bands does not override the cut-offs', () => {
+  const stale = { code: 'CHEM', gradeBands: { ...lib.DEFAULT_BANDS } };
+  if (lib.bandsOrigin(stale) !== 'cutoff') {
+    throw new Error(`leftover defaults still count as tuned (${lib.bandsOrigin(stale)})`);
+  }
+  const bands = lib.bandsFor(stale);
+  if (bands[7] === lib.DEFAULT_BANDS[7]) throw new Error('Chemistry kept the generic 85%');
+  if (bands[7] < 88) throw new Error(`Chemistry 5** should be around 92%, got ${bands[7]}%`);
+});
+
+check('bands saved by an earlier version are ignored, not honoured', () => {
+  // Bands used to be editable, and a few records still carry a saved set.
+  // Honouring them would keep grading against numbers the exam never published.
+  const stale = { code: 'CHEM', gradeBands: { 2: 36, 3: 46, 4: 56, 5: 66, 6: 76, 7: 86 } };
+  if (lib.bandsOrigin(stale) !== 'cutoff') throw new Error('a stored band set still counts as a source');
+  if (lib.bandsFor(stale)[7] === 86) throw new Error('the stored 5** was used instead of the published figure');
+  if (lib.bandsFor(stale)[7] < 88) throw new Error(`Chemistry 5** should be around 92%, got ${lib.bandsFor(stale)[7]}%`);
+});
+
+check('per-paper figures win over anything stored on the subject', () => {
+  const stale = { code: 'CHIN', gradeBands: { 2: 20, 3: 30, 4: 40, 5: 50, 6: 60, 7: 70 } };
+  const bands = lib.bandsForPaper(stale, 'P1', 2026);
+  if (bands[7] === 70) throw new Error('the stored 70% overrode the published Paper 1 figure');
+  // Chinese Paper 1's 5** sits near 64%, well below the subject-wide blend.
+  if (bands[7] < 60 || bands[7] > 68) throw new Error(`Chinese P1 5** looks wrong: ${bands[7]}%`);
 });
 
 /* --- Logging a session by start and end time, or by hours and minutes ----- */
@@ -859,9 +930,9 @@ modal()?.querySelector('[data-close]')?.dispatchEvent(
 );
 await tick();
 
-/* The editor lists the same four grades in the same order as the strip, so the
-   two screens cannot disagree about which way the numbers run. */
-check('the band editor lists grades highest first, matching the strip', () => {
+/* Bands are published figures now, so this panel is a readout rather than an
+   editor. It must still list the grades highest first, matching the strip. */
+check('the band panel lists grades highest first and cannot be typed over', () => {
   app.navigate('papers');
   return tick().then(() => {
     document.querySelector('[data-act="edit-subject"][data-id="s1"]')?.dispatchEvent(
@@ -870,9 +941,18 @@ check('the band editor lists grades highest first, matching the strip', () => {
     return tick().then(() => {
       const m = modal();
       if (!m) throw new Error('the subject dialog did not open');
-      const labels = [...m.querySelectorAll('.band-cell span')].map((el) => el.textContent.trim());
+      const labels = [...m.querySelectorAll('.band-lvl')].map((el) => el.textContent.trim());
       if (labels.join(',') !== '5**,5*,5,4,3,2') {
-        throw new Error(`the editor reads ${labels.join(',')}`);
+        throw new Error(`the panel reads ${labels.join(',')}`);
+      }
+      // A DSE paper is graded by the exam's boundaries, so there is nothing to
+      // edit: any input here would let a student redefine the grading.
+      const inputs = m.querySelectorAll('#sj-bands input');
+      if (inputs.length) throw new Error(`${inputs.length} band inputs are still editable`);
+      const values = [...m.querySelectorAll('.band-fixed')];
+      if (values.length !== 6) throw new Error(`expected 6 published values, got ${values.length}`);
+      if (values.some((el) => !/^\d+$/.test(el.textContent.trim()))) {
+        throw new Error(`a band cell is empty: ${values.map((v) => v.textContent).join(',')}`);
       }
       m.querySelector('[data-close]')?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
     });
@@ -969,70 +1049,26 @@ check('a save with a stale id is retried as a create, not lost', () => {
   if (row.score !== 82) throw new Error(`score saved as ${row.score}`);
 });
 
-/* --- Paper presets ------------------------------------------------------- */
+/* --- Focus timer --------------------------------------------------------- */
 
 app.navigate('focus');
 await tick();
 
-check('the Focus page offers searchable paper presets', () => {
-  const search = $('#preset-search');
-  if (!search) throw new Error('no preset search input');
-  const cards = $$('#preset-list .preset-paper');
-  if (cards.length < 6) throw new Error(`only ${cards.length} presets rendered`);
-  const text = $('#preset-list').textContent;
-  for (const want of ['Chinese', 'English', 'Mathematics', 'CSD']) {
-    if (!text.includes(want)) throw new Error(`missing ${want} preset`);
+check('the Focus timer no longer offers paper presets', () => {
+  if ($('#preset-search')) throw new Error('the paper preset search box is still there');
+  if ($('#preset-list')) throw new Error('the paper preset list is still there');
+  if ($$('.preset-paper').length) throw new Error('paper preset buttons are still rendered');
+  if (document.querySelector('[data-act="paper-preset"]')) {
+    throw new Error('a paper-preset action is still wired up');
   }
 });
 
-check('searching filters presets by paper and by length', () => {
-  const search = $('#preset-search');
-  search.value = 'chinese';
-  search.dispatchEvent(new window.Event('input', { bubbles: true }));
-  const chinese = $$('#preset-list .preset-paper');
-  if (!chinese.length) throw new Error('no Chinese presets after search');
-  if (chinese.some((c) => !/Chinese/.test(c.textContent))) {
-    throw new Error('search returned a non-Chinese paper');
-  }
-
-  search.value = 'maths 135';
-  search.dispatchEvent(new window.Event('input', { bubbles: true }));
-  const maths = $$('#preset-list .preset-paper');
-  if (maths.length !== 1) throw new Error(`expected one maths paper, got ${maths.length}`);
-  if (!/2h 15m/.test(maths[0].textContent)) throw new Error('maths P1 should be 2h 15m');
-});
-
-check('a search with no matches says so instead of showing nothing', () => {
-  const search = $('#preset-search');
-  search.value = 'zzzznothing';
-  search.dispatchEvent(new window.Event('input', { bubbles: true }));
-  const list = $('#preset-list');
-  if (!$('#preset-list .empty')) throw new Error('no empty state');
-  if (!/No paper matches/.test(list.textContent)) throw new Error('empty state is not explanatory');
-  search.value = '';
-  search.dispatchEvent(new window.Event('input', { bubbles: true }));
-});
-
-check('choosing a preset loads its exact length and tags the subject', () => {
-  const list = $('#preset-list');
-  const chineseP2 = [...list.querySelectorAll('.preset-paper')].find(
-    (b) => b.dataset.label === 'Chinese P2 Writing'
-  );
-  if (!chineseP2) throw new Error('Chinese P2 preset missing');
-  chineseP2.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
-  return;
-});
-
-await tick();
-
-check('the dial now shows the paper length, not 25:00', () => {
+check('the ordinary length presets still load the dial', () => {
+  const btn = [...$$('.presets .preset')].find((b) => b.dataset.preset === '50');
+  if (!btn) throw new Error('the 50 minute preset is gone');
+  btn.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
   const dial = $('[data-timer-time]');
-  if (dial.textContent !== '2:15:00') throw new Error(`dial shows ${dial.textContent}, expected 2:15:00`);
-});
-
-check('the preset tagged the Chinese subject for logging', () => {
-  const select = $('#timer-subject');
-  if (select.value !== 's1') throw new Error(`subject tag is ${select.value}, expected s1 (Chinese)`);
+  if (dial.textContent !== '50:00') throw new Error(`dial shows ${dial.textContent}, expected 50:00`);
 });
 
 /* --- Brand and logo ------------------------------------------------------ */
@@ -1098,19 +1134,34 @@ check('a subject without published boundaries still grades sensibly', () => {
   if (bands[7] !== lib.DEFAULT_BANDS[7]) throw new Error('the fallback is not the documented one');
 });
 
-check('a subject’s own bands change the level it predicts', () => {
+check('stored bands cannot change the level a paper is given', () => {
+  // Bands used to be editable, so a record could carry a set meant to soften or
+  // sharpen its own grading. That is exactly what must not happen now: the
+  // grade has to come from the exam's published boundaries.
   const easy = { code: 'MATH', gradeBands: { 2: 20, 3: 30, 4: 40, 5: 50, 6: 60, 7: 70 } };
-  const hard = { code: 'MATH', gradeBands: { 2: 50, 3: 60, 4: 70, 5: 80, 6: 90, 7: 95 } };
-  if (lib.levelFromPercentage(75, easy) !== 7) throw new Error('easy bands should give 5** at 75%');
-  if (lib.levelFromPercentage(75, hard) !== 4) throw new Error('hard bands should give 4 at 75%');
+  const published = lib.bandsFor({ code: 'MATH' });
+  const withStored = lib.bandsFor(easy);
+  if (JSON.stringify(published) !== JSON.stringify(withStored)) {
+    throw new Error(`a stored band set changed the bands: ${JSON.stringify(withStored)}`);
+  }
+  if (lib.levelFromPercentage(75, easy) !== lib.levelFromPercentage(75, { code: 'MATH' })) {
+    throw new Error('a stored band set changed the predicted level');
+  }
+  // Maths 5** sits above 90, so 75% cannot be a 5** however the record is set.
+  if (lib.levelFromPercentage(75, easy) === 7) throw new Error('75% was graded as 5** in Maths');
   if (lib.levelFromPercentage(10, easy) !== 1) throw new Error('below every band is Level 1');
 });
 
-check('inverted bands are repaired rather than trusted', () => {
-  const broken = { code: 'MATH', gradeBands: { 2: 90, 3: 20, 4: 30, 5: 40, 6: 50, 7: 60 } };
-  const bands = lib.bandsFor(broken);
-  const order = [2, 3, 4, 5, 6, 7].map((l) => bands[l]);
-  if (order.some((v, i) => i && v <= order[i - 1])) throw new Error(`bands not monotonic: ${order.join(',')}`);
+check('every subject’s bands ascend, since nothing can invert them now', () => {
+  // The published figures are the only source, so this catches a bad data file
+  // rather than a bad edit.
+  for (const code of ['CHIN', 'ENG', 'MATH', 'CHEM', 'BIOL', 'GEOG', 'ICT']) {
+    const bands = lib.bandsFor({ code });
+    const order = [2, 3, 4, 5, 6, 7].map((l) => bands[l]);
+    if (order.some((v, i) => i && v <= order[i - 1])) {
+      throw new Error(`${code} bands are not monotonic: ${order.join(',')}`);
+    }
+  }
 });
 
 check('CSD still has no bands, because it has no levels', () => {

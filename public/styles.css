@@ -776,47 +776,20 @@ table.plain td.num { font-variant-numeric: tabular-nums; font-size: 0.8rem; }
 .preset:hover { border-color: var(--ink); color: var(--ink); }
 .preset[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); font-weight: 650; }
 
-.preset-picker { display: grid; gap: 8px; border-top: 1px solid var(--line); padding-top: 14px; }
-.preset-picker .field { max-width: none; }
-.preset-list {
-  display: grid; grid-template-columns: repeat(auto-fill, minmax(158px, 1fr));
-  gap: 6px; max-height: 208px; overflow-y: auto; padding: 2px;
-  scrollbar-width: thin;
-}
-.preset-paper {
-  display: grid; grid-template-columns: 1fr auto; grid-template-areas: "title mins" "meta mins";
-  gap: 1px 8px; text-align: left; align-items: center;
-  border-radius: var(--radius-control); padding: 6px 9px; border-color: var(--line);
-  background: var(--paper-2);
-}
-.preset-paper:hover { border-color: var(--line-strong); }
-.preset-paper .preset-title { grid-area: title; font-size: 0.78rem; font-weight: 600; color: var(--ink); }
-.preset-paper .preset-meta {
-  grid-area: meta; font-size: 0.7rem; font-weight: 400; color: var(--muted);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.preset-paper .preset-mins {
-  grid-area: mins; font-size: 0.74rem; color: var(--muted);
-  font-variant-numeric: tabular-nums;
-}
-.preset-paper[aria-pressed="true"] {
-  border-color: var(--accent); background: var(--accent-soft); color: var(--accent);
-}
-.preset-paper[aria-pressed="true"] .preset-title,
-.preset-paper[aria-pressed="true"] .preset-mins { color: var(--accent); }
-
-/* Grade bands: six compact cells, readable on a phone */
+/* Grade bands: six compact cells, readable on a phone. These are published
+   figures, so they read as values rather than inputs. */
 .band-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 5px; }
 .band-cell { display: grid; gap: 3px; justify-items: center; }
-.band-cell span { font-size: 0.7rem; font-weight: 600; color: var(--muted); }
-.band-cell input {
+.band-lvl { font-size: 0.7rem; font-weight: 600; color: var(--muted); }
+.band-fixed {
   width: 100%; text-align: center; padding: 6px 2px;
-  font-size: 0.8rem; border-radius: var(--radius-control);
+  font-size: 0.82rem; font-weight: 600; color: var(--ink);
+  border: 1px solid var(--line); border-radius: var(--radius-control);
+  background: var(--paper-2);
   font-variant-numeric: tabular-nums;
 }
 @media (max-width: 460px) {
   .band-grid { grid-template-columns: repeat(3, 1fr); }
-  .preset-list { grid-template-columns: 1fr; }
 }
 .timer-actions { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
 
@@ -1096,7 +1069,6 @@ html[data-theme="dark"] .toast.error { background: var(--warn); color: #1a0f0a; 
   .icon-btn svg { width: 18px; height: 18px; }
   .filter-pill, .subject-tab { min-height: 38px; padding: 8px 14px; }
   .preset { min-height: 40px; padding: 8px 14px; }
-  .preset-paper { min-height: 56px; }
   .tabbar { -webkit-user-select: none; user-select: none; }
 
   /* iOS zooms the page when a field below 16px is focused. This keeps the
@@ -1118,10 +1090,6 @@ html[data-theme="dark"] .toast.error { background: var(--warn); color: #1a0f0a; 
   .matrix thead th { padding: 7px 2px; }
   .matrix tbody th { width: 46px; font-size: 0.68rem; }
 
-  .preset-list { max-height: 46vh; }
-  /* On a phone the preset list is a scroller, not a wall of buttons, so the
-     dial and Start stay within reach without a long scroll. */
-  .preset-list { max-height: 180px; }
   /* The subject select sits under the heading rather than being squeezed
      beside it, which pushed it past the card edge. */
   .timer-card .row:first-child { flex-direction: column; align-items: stretch; gap: 8px; }

@@ -6,7 +6,7 @@ import {
   esc, icon, state, topbar, pct, lvlChip, lvlLabel, papersFor, matrixPapersFor, yearsFor, YEARS, subjectById,
   papersOf, otherPapersOf, subjectPrediction, subjectAttainment, subjectPct, subjectDsePct, fmtDate,
   usesAttainment, attainmentChip, attainmentLabel, CSD_FIRST_YEAR, OTHER_SOURCES, otherSourceLabel,
-  levelFromPercentage, nextBand, bandsFor, bandsOrigin
+  levelFromPercentage, nextBand, bandsFor
 } from '../lib.js';
 import { recentBoundaries, recentPaperBoundaries, CUTOFF_SOURCE } from '../cutoffs.js';
 
@@ -49,8 +49,6 @@ const PAPER_TITLE = {
 function paperRows(subject) {
   const code = subject?.code;
   if (!code) return '';
-  const bands = subject?.gradeBands;
-  if (bands && typeof bands === 'object' && Object.keys(bands).length) return '';
 
   const papers = matrixPapersFor(subject).filter((p) => p !== 'SBA');
   const rows = [];
@@ -125,32 +123,26 @@ function cutoffNote(subject) {
     .join('');
   if (!cells) return '';
 
+  // Published DSE figures or nothing published. There is no "your bands" case:
+  // this box reports what the exam required, so a student's own tuning belongs
+  // in the band editor, not here.
   const origin =
     rows.source === 'dse00'
       ? `<span class="muted">mean of ${rows.from}–${rows.to} · ${esc(subject.code)}</span>`
-      : rows.source === 'yours'
-        ? `<span class="muted">your own bands · ${esc(subject.code)}</span>`
-        : `<span class="muted">starting point · ${esc(subject.code)}</span>`;
+      : `<span class="muted">starting point · ${esc(subject.code)}</span>`;
 
   const foot =
     rows.source === 'dse00'
       ? `From <a href="${CUTOFF_SOURCE.url}" target="_blank" rel="noopener noreferrer">${esc(CUTOFF_SOURCE.name)}</a>,
          as a share of each year's full marks. A boundary is the last mark that earned the grade —
          not a promise about yours.`
-      : rows.source === 'yours'
-        ? `The boundaries you set for this subject. Adjust them whenever a marked paper tells you more.`
-        : `No published DSE boundaries reach this subject, so these are neutral starting points. Adjust them once you have marked papers.`;
-
-  const adjust =
-    rows.source === 'dse00'
-      ? ''
-      : `<button class="cut-adjust" data-act="edit-subject" data-id="${esc(subject.id)}" type="button">Adjust</button>`;
+      : `No published DSE boundaries reach this subject, so these are neutral starting points.
+         A boundary is the last mark that earned the grade — not a promise about yours.`;
 
   return `<div class="cut-note">
     <div class="cut-head">
       <b>Grade boundaries</b>
       ${origin}
-      ${adjust}
     </div>
     <ol class="cut-list">${cells}</ol>
     <div class="cut-foot">${foot}</div>
@@ -165,25 +157,29 @@ function cutoffNote(subject) {
  * states plainly:
  *
  *   dse00   — published boundaries, averaged over the last five sittings;
- *   yours   — the student's own bands, which always win over the published ones;
  *   default — neutral starting points, used only where the source publishes
  *             nothing for a subject, so the strip never claims authority it
  *             does not have.
  *
- * The values come from the same `bandsFor` the grader uses, so a figure on
- * screen can never disagree with the level given to a paper.
+ * The student's own bands are deliberately never used here. This box reports
+ * what the DSE actually required, so tuning the bands changes how a paper is
+ * graded without rewriting the published figures.
  */
 function boundaryRows(subject) {
+  // Published DSE boundaries only. This box answers "what did the exam actually
+  // require?", so the student's own bands must not appear here — editing them
+  // in Settings changes how a paper is graded, not what the DSE tables say.
   const recent = recentBoundaries(subject.code);
-  const origin = bandsOrigin(subject);
-  if (recent && origin === 'cutoff') {
+  if (recent && Object.keys(recent.mean).length) {
     return { source: 'dse00', values: recent.mean, from: recent.from, to: recent.to };
   }
-  const bands = bandsFor(subject);
+  // Nothing published: fall back to the shipped figures for that subject, if
+  // any, then to the neutral set, and label it as such.
+  const bands = bandsFor({ code: subject.code });
   const values = { 4: bands[4], 5: bands[5], '5*': bands[6], '5**': bands[7] };
   const usable = Object.values(values).some((v) => Number.isFinite(v) && v > 0);
   if (!usable) return null;
-  return { source: origin === 'tuned' ? 'yours' : 'default', values };
+  return { source: 'default', values };
 }
 
 /**

@@ -202,19 +202,12 @@ export const initials = (name = '') =>
 /* ------------------------------- grade bands ------------------------------ */
 
 /**
- * HKEAA does not publish per-level raw-mark cut-offs. Levels are set against
- * the year's cohort and can move by several marks between sessions, so any
- * exact-looking number would be invented. What is stable is the *shape*: 5**
- * is the top percentile, 2 is roughly the pass, and each level is a band.
+ * A neutral fallback for the few subjects the DSE00 tables do not cover.
  *
- * So the app speaks in two honest things:
- *   1. a percentage-of-marks band per level, which the student can shift to
- *      match their own school's past-paper conversion; and
- *   2. HKEAA's published level descriptors, which describe what a 5** answer
- *      actually does.
- * The education bureau's indicative descriptors put Level 3 near 50% and
- * Level 4 near 60% of marks on many papers; that is the starting point, not
- * an official boundary.
+ * This is not an editable setting any more. A DSE paper's grade is decided by
+ * the published boundaries for its subject and sitting, so the only role this
+ * set plays is to keep a subject with no published rows usable at all. Where a
+ * published figure exists it always wins.
  */
 export const DEFAULT_BANDS = { 2: 35, 3: 45, 4: 55, 5: 65, 6: 75, 7: 85 };
 export const BAND_LEVELS = [2, 3, 4, 5, 6, 7];
@@ -233,34 +226,27 @@ export const LEVEL_DESCRIPTORS = {
 const bandCache = new Map();
 
 /**
- * Bands are resolved in this order: the subject's own tuning, then the real
- * cut-offs published by DSE00 for that subject, then this generic starting
- * point. The middle step is why the defaults are not guesses any more — a
- * Level 4 in Chemistry really does start much higher than a Level 4 in
- * Geography, and the app now reflects that from the first render.
+ * Bands are resolved from the published DSE figures for that subject, then the
+ * neutral starting point. A student's own bands are no longer part of this:
+ * the grade a DSE paper gets has to be the grade the DSE would have given, or
+ * the prediction is just the student's opinion reflected back at them.
+ *
+ * Any `gradeBands` still stored on an old record is ignored on purpose. Those
+ * rows were saved by an earlier version, and honouring them would keep grading
+ * a paper against numbers that never came from the exam.
  */
 export function bandsFor(subject) {
-  const custom = subject?.gradeBands;
-  const key = JSON.stringify(custom || null) + '|' + (subject?.code || '');
+  const key = subject?.code || '';
   if (bandCache.has(key)) return bandCache.get(key);
 
-  // Only subjects the student has not tuned fall through to the cut-offs.
-  const hasCustom = custom && typeof custom === 'object' && Object.keys(custom).length;
   const resolved = { ...DEFAULT_BANDS };
-  if (!hasCustom) {
-    // The DSE00 tables describe the *latest* sitting, which is not necessarily
-    // the sitting a paper belongs to. Older papers must keep the generic bands,
-    // or a 2013 script would be graded against 2026 boundaries.
-    const real = subject?.code ? cutoffBands(subject.code) : null;
-    if (real) Object.assign(resolved, real);
-  }
-  if (hasCustom) {
-    for (const level of BAND_LEVELS) {
-      const v = Number(custom[level]);
-      if (Number.isFinite(v) && v > 0 && v < 100) resolved[level] = Math.round(v);
-    }
-  }
-  // Keep the bands monotonic even if a hand-edited value inverted them.
+  // The DSE00 tables describe the *latest* sitting, which is not necessarily
+  // the sitting a paper belongs to. Older papers must keep the generic bands,
+  // or a 2013 script would be graded against 2026 boundaries.
+  const real = subject?.code ? cutoffBands(subject.code) : null;
+  if (real) Object.assign(resolved, real);
+
+  // Keep the bands monotonic even if the source's rounding collides.
   let previous = 0;
   for (const level of [2, 3, 4, 5, 6, 7]) {
     resolved[level] = Math.max(resolved[level], previous + 1);
@@ -272,14 +258,10 @@ export function bandsFor(subject) {
 
 /**
  * Bands for one particular sitting. Cached cut-offs are per-subject (a mean of
- * the last three years), so a year the student actually sat is worth reading
+ * the last five years), so a year the student actually sat is worth reading
  * against its own boundaries when the source has them.
  */
 export function bandsForYear(subject, year) {
-  const custom = subject?.gradeBands;
-  if (custom && typeof custom === 'object' && Object.keys(custom).length) {
-    return bandsFor(subject);
-  }
   const numeric = Number(year);
   const historic = subject?.code ? cutoffBandsForYear(subject.code, numeric) : null;
   return historic ? { ...DEFAULT_BANDS, ...historic } : bandsFor(subject);
@@ -295,10 +277,6 @@ export function bandsForYear(subject, year) {
  * without per-paper rows fall back to their subject-wide bands unchanged.
  */
 export function bandsForPaper(subject, paper, year = null) {
-  const custom = subject?.gradeBands;
-  if (custom && typeof custom === 'object' && Object.keys(custom).length) {
-    return bandsFor(subject);
-  }
   const code = subject?.code;
   if (!code || !paper) return bandsForYear(subject, year);
   const own = paperBands(code, paper);
@@ -313,12 +291,11 @@ export function bandsForPaper(subject, paper, year = null) {
 }
 
 /**
- * Which of the three layers a subject's bands came from, so the UI can say
- * where the numbers are from instead of implying they are official.
+ * Where a subject's bands came from, so the UI can say so instead of implying
+ * every number is official. There is no "tuned" answer any more: bands are
+ * always the published figures or the neutral fallback.
  */
 export function bandsOrigin(subject, paper = null) {
-  const custom = subject?.gradeBands;
-  if (custom && typeof custom === 'object' && Object.keys(custom).length) return 'tuned';
   if (paper && subject?.code && paperBands(subject.code, paper)) return 'cutoff';
   if (subject?.code && cutoffBands(subject.code)) return 'cutoff';
   return 'default';
@@ -374,8 +351,6 @@ export const state = {
   taskFilter: 'open',
   errorSubject: 'all',
   timerPresetMinutes: 25,
-  presetQuery: '',
-  presetKey: '',
   timerSubject: null
 };
 

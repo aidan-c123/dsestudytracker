@@ -95,6 +95,35 @@ await test('the five-year list covers 4 through 5** and climbs with the grade', 
   assert.equal(cutoffs.recentBoundaries('CSD'), null, 'CSD has no levels, so no boundaries');
 });
 
+/* Levels 3 and 2 used to fall back to the generic 45/35 for every subject,
+   because the five-sitting mean only kept grades 4 and up. */
+await test('levels 3 and 2 are real published figures, not the generic fallback', () => {
+  for (const code of ['CHIN', 'ENG', 'MATH', 'CHEM', 'BIOL']) {
+    const bands = lib.bandsFor({ code });
+    assert.notEqual(bands[3], lib.DEFAULT_BANDS[3], `${code} Level 3 is still the generic 55`);
+    assert.notEqual(bands[2], lib.DEFAULT_BANDS[2], `${code} Level 2 is still the generic 35`);
+  }
+  // Spot-check two subjects whose real figures are far from the fallback.
+  assert.equal(lib.bandsFor({ code: 'CHEM' })[3], 47, 'Chemistry Level 3 is 46.7');
+  assert.equal(lib.bandsFor({ code: 'CHEM' })[2], 29, 'Chemistry Level 2 is 29.4');
+  assert.equal(lib.bandsFor({ code: 'MATH' })[3], 52, 'Maths Level 3 is 52.3');
+});
+
+/* The strip promised "the past five years" but the stored per-paper summary was
+   a three-year mean, so it read 2024–2026. */
+await test('the reported span really is the last five sittings', () => {
+  const recent = cutoffs.recentBoundaries('CHIN');
+  assert.equal(recent.count, 5, `subject mean covers ${recent.count} sittings`);
+  assert.equal(recent.to - recent.from, 4, `subject span is ${recent.from}–${recent.to}`);
+
+  for (const paper of ['P1', 'P2']) {
+    const rows = cutoffs.recentPaperBoundaries('CHIN', paper);
+    assert.ok(rows, `Chinese ${paper} has boundaries`);
+    assert.equal(rows.count, 5, `${paper} mean covers ${rows.count} sittings`);
+    assert.equal(rows.to - rows.from, 4, `${paper} span is ${rows.from}–${rows.to}`);
+  }
+});
+
 await test('bands come from the data, not the generic fallback', () => {
   for (const code of ['CHIN', 'ENG', 'MATH']) {
     const bands = lib.bandsFor({ code });
@@ -111,11 +140,17 @@ await test('an unexamined subject still has usable bands', () => {
   }
 });
 
-await test('a student’s own bands still win over the published ones', () => {
+await test('a stored band set does not override the published figures', () => {
+  // Bands were editable in an earlier version. Any set still on a record must
+  // be ignored, or the app would grade against numbers the exam never published.
+  // Chemistry is used because its published figures are far from the values
+  // stored here — Chinese would be a poor test, its real 5** is itself 70.
   const mine = { 2: 20, 3: 30, 4: 40, 5: 50, 6: 60, 7: 70 };
-  const bands = lib.bandsFor({ code: 'CHIN', gradeBands: mine });
-  assert.equal(bands[7], 70);
-  assert.equal(bands[2], 20);
+  const bands = lib.bandsFor({ code: 'CHEM', gradeBands: mine });
+  assert.notEqual(bands[7], 70, 'the stored 5** was used');
+  assert.notEqual(bands[2], 20, 'the stored Level 2 was used');
+  assert.ok(bands[7] > 88, `Chemistry 5** should be its published figure, got ${bands[7]}`);
+  assert.ok(bands[2] > 25, `Chemistry Level 2 should be its published figure, got ${bands[2]}`);
 });
 
 /* --------------------------------- output --------------------------------- */

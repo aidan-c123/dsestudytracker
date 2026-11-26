@@ -154,9 +154,6 @@ export function paintTimer() {
     el.setAttribute('aria-pressed', String(active));
   });
   // Paper presets stay visibly unselected once the clock is running.
-  $$('.preset-paper').forEach((el) => {
-    if (timer) el.setAttribute('aria-pressed', 'false');
-  });
   $$('[data-timer-subject]').forEach((el) => {
     if (timer?.subjectId) el.value = timer.subjectId;
   });

@@ -1,5 +1,12 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="StarShooter">
-  <rect width="64" height="64" rx="15" fill="#0f6b5c"/>
-  <path d="M31.2 8.4 36.6 25.5 53.6 30.9 36.6 36.3 31.2 53.4 25.8 36.3 8.8 30.9 25.8 25.5Z" fill="#f7f3ea"/>
-  <circle cx="49.6" cy="13.6" r="3.4" fill="#dcc07a"/>
+  <!--
+    A four-cell matrix: the past-paper grid the app is built around, with one
+    cell picked out in gold — the paper you are working toward. Four shapes
+    survive being scaled to a 16px favicon, where finer detail turns to mud.
+  -->
+  <rect width="64" height="64" rx="14" fill="#10574b"/>
+  <rect x="15" y="15" width="14" height="14" rx="3" fill="#f8f6f1"/>
+  <rect x="35" y="15" width="14" height="14" rx="3" fill="#f8f6f1"/>
+  <rect x="15" y="35" width="14" height="14" rx="3" fill="#f8f6f1"/>
+  <rect x="35" y="35" width="14" height="14" rx="3" fill="#e0c383"/>
 </svg>

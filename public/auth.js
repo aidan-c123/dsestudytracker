@@ -29,7 +29,7 @@ export function renderAuth(message = notice) {
         <p>For DSE candidates tired of six spreadsheets. Papers, focus blocks, SBA deadlines and the countdown — in one place, private to you.</p>
         <ul>
           <li>Fifteen years of papers, split by paper</li>
-          <li>Timer presets for every real paper</li>
+          <li>Focus blocks you can log in seconds</li>
           <li>Target vs. predicted, no flattery</li>
           <li>Countdown to 6 April 2027</li>
         </ul>
