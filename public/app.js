@@ -3,8 +3,9 @@
    ============================================================ */
 
 import {
-  $, $$, esc, icon, state, hooks, applyTheme, api, toast, initials, countdownParts
+  $, $$, esc, icon, state, hooks, applyTheme, api, toast, initials, countdownParts, resetBandCache
 } from './lib.js';
+import { loadCutoffs } from './cutoffs.js';
 import { renderAuth, signOut } from './auth.js';
 import { renderDesk } from './views/desk.js';
 import { renderPapers } from './views/papers.js';
@@ -78,7 +79,7 @@ function shellHTML() {
             </div>
           </div>
           <span style="flex:1"></span>
-          <button class="icon-btn" data-act="toggle-theme" aria-label="Toggle dark mode" title="Toggle dark mode">${icon('moon')}</button>
+          <button class="icon-btn" data-act="toggle-theme" data-theme-icon aria-label="Switch between light and dark" title="Switch between light and dark">${icon('moon')}</button>
           <div class="avatar" style="width:28px;height:28px;font-size:.72rem">${esc(initials(user.name))}</div>
         </div>
         <main class="main"><div class="main-inner" id="view"></div></main>
@@ -214,6 +215,13 @@ hooks.afterAuth = renderApp;
 export async function boot() {
   hooks.renderApp = renderApp;
   bindGlobal();
+  // Cut-offs are a data file, not a network API, so they can load alongside
+  // the session. A failure leaves the built-in bands in place.
+  loadCutoffs();
+  window.addEventListener('cutoffs:ready', () => {
+    resetBandCache();
+    if (state.data) hooks.renderView();
+  });
   try {
     const data = await api('/me');
     state.data = data;

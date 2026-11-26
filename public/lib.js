@@ -5,6 +5,8 @@
 export const $ = (sel, el = document) => el.querySelector(sel);
 export const $$ = (sel, el = document) => [...el.querySelectorAll(sel)];
 
+import { cutoffBands } from './cutoffs.js';
+
 export const esc = (v) =>
   String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
@@ -27,7 +29,10 @@ const ICONS = {
   clock: '<circle cx="12" cy="12" r="8.4"/><path d="M12 7.4V12l3.2 2"/>',
   flame: '<path d="M12 3s5 4.2 5 9a5 5 0 0 1-10 0c0-2 1-3.4 1-3.4S9 11 10.4 11c1.5 0 1.4-2.2 1.4-2.2S12 6 12 3z"/>',
   moon: '<path d="M20 14.4A8.4 8.4 0 0 1 9.6 4a8.4 8.4 0 1 0 10.4 10.4z"/>',
-  book: '<path d="M4 5.4A2.4 2.4 0 0 1 6.4 3H20v15.6H6.4A2.4 2.4 0 0 0 4 21z"/><path d="M4 18.6V5.4"/><path d="M8 7.6h8M8 11.2h5"/>'
+  sun: '<circle cx="12" cy="12" r="4.2"/><path d="M12 2.6v2.2M12 19.2v2.2M4.6 4.6l1.6 1.6M17.8 17.8l1.6 1.6M2.6 12h2.2M19.2 12h2.2M4.6 19.4l1.6-1.6M17.8 6.2l1.6-1.6"/>',
+  book: '<path d="M4 5.4A2.4 2.4 0 0 1 6.4 3H20v15.6H6.4A2.4 2.4 0 0 0 4 21z"/><path d="M4 18.6V5.4"/><path d="M8 7.6h8M8 11.2h5"/>',
+  layers: '<path d="M12 3.2 3.6 7.6 12 12l8.4-4.4z"/><path d="m3.6 12.6 8.4 4.4 8.4-4.4"/><path d="m3.6 17.2 8.4 4.4 8.4-4.4"/>',
+  pen: '<path d="M15.6 4.4a2.1 2.1 0 0 1 3 3L8.4 17.6 4.8 18.8l1.2-3.6z"/><path d="M14.2 5.8l3 3"/>'
 };
 
 export function icon(name, attrs = '') {
@@ -191,7 +196,6 @@ export const initials = (name = '') =>
  * an official boundary.
  */
 export const DEFAULT_BANDS = { 2: 35, 3: 45, 4: 55, 5: 65, 6: 75, 7: 85 };
-
 export const BAND_LEVELS = [2, 3, 4, 5, 6, 7];
 
 /** One-line HKEAA level descriptors, paraphrased for quick reading. */
@@ -208,16 +212,25 @@ export const LEVEL_DESCRIPTORS = {
 const bandCache = new Map();
 
 /**
- * Bands are resolved in this order: the subject's own tuning, the account's
- * default, then the built-in starting point. That keeps one student's
- * calibration from leaking into every subject.
+ * Bands are resolved in this order: the subject's own tuning, then the real
+ * cut-offs published by DSE00 for that subject, then this generic starting
+ * point. The middle step is why the defaults are not guesses any more — a
+ * Level 4 in Chemistry really does start much higher than a Level 4 in
+ * Geography, and the app now reflects that from the first render.
  */
 export function bandsFor(subject) {
   const custom = subject?.gradeBands;
-  const key = JSON.stringify(custom || null);
+  const key = JSON.stringify(custom || null) + '|' + (subject?.code || '');
   if (bandCache.has(key)) return bandCache.get(key);
+
+  // Only subjects the student has not tuned fall through to the cut-offs.
+  const hasCustom = custom && typeof custom === 'object' && Object.keys(custom).length;
   const resolved = { ...DEFAULT_BANDS };
-  if (custom && typeof custom === 'object') {
+  if (!hasCustom && subject?.code) {
+    const real = cutoffBands(subject.code);
+    if (real) Object.assign(resolved, real);
+  }
+  if (hasCustom) {
     for (const lvl of BAND_LEVELS) {
       const v = Number(custom[lvl]);
       if (Number.isFinite(v) && v > 0 && v < 100) resolved[lvl] = Math.round(v);
@@ -231,6 +244,22 @@ export function bandsFor(subject) {
   }
   bandCache.set(key, resolved);
   return resolved;
+}
+
+/**
+ * Which of the three layers a subject's bands came from, so the UI can say
+ * where the numbers are from instead of implying they are official.
+ */
+export function bandsOrigin(subject) {
+  const custom = subject?.gradeBands;
+  if (custom && typeof custom === 'object' && Object.keys(custom).length) return 'tuned';
+  if (subject?.code && cutoffBands(subject.code)) return 'cutoff';
+  return 'default';
+}
+
+/** Cut-offs arrive after first paint, so drop cached bands when they land. */
+export function resetBandCache() {
+  bandCache.clear();
 }
 
 /** Highest level whose band the percentage reaches; 1 below the Level 2 band. */
@@ -473,18 +502,53 @@ export function countdownParts() {
 /* ---------------------------------- theme --------------------------------- */
 
 const media = window.matchMedia('(prefers-color-scheme: dark)');
+
+/** The theme actually on screen, resolving "system" through the device. */
+export function effectiveTheme(theme = 'system') {
+  return theme === 'system' ? (media.matches ? 'dark' : 'light') : theme;
+}
+
 export function applyTheme(theme = 'system') {
-  const effective = theme === 'system' ? (media.matches ? 'dark' : 'light') : theme;
-  document.documentElement.dataset.theme = effective;
+  const effective = effectiveTheme(theme);
+  const root = document.documentElement;
+  // Add the transition attribute only for the swap itself, so scrolling and
+  // typing are never slowed down by a global colour transition.
+  if (root.dataset.theme) {
+    root.dataset.themeSwapping = '';
+    window.setTimeout(() => delete root.dataset.themeSwapping, 200);
+  }
+  root.dataset.theme = effective;
   let meta = document.querySelector('meta[name="theme-color"]:not([media])');
   if (!meta) {
     meta = document.createElement('meta');
     meta.name = 'theme-color';
     document.head.appendChild(meta);
   }
-  meta.content = effective === 'dark' ? '#131714' : '#f7f3ea';
+  meta.content = effective === 'dark' ? '#121312' : '#f8f6f1';
+  // Remember the last painted theme so the next load can paint it before the
+  // CSS runs, instead of flashing light first.
+  try {
+    localStorage.setItem('starshooter-theme', effective);
+  } catch {
+    /* private mode: the attribute above is enough */
+  }
+  // The toggle button shows what you will get, not what you are in.
+  document.querySelectorAll('[data-theme-icon]').forEach((el) => {
+    el.innerHTML = icon(effective === 'dark' ? 'sun' : 'moon');
+  });
 }
-media.addEventListener('change', () => applyTheme(state.data?.user.theme || 'system'));
+
+/** Flip between light and dark without a round-trip or a page rebuild. */
+export function toggleTheme() {
+  const next = effectiveTheme(state.data?.user?.theme || 'system') === 'dark' ? 'light' : 'dark';
+  applyTheme(next);
+  if (state.data?.user) state.data.user.theme = next;
+  return next;
+}
+
+media.addEventListener('change', () => {
+  if ((state.data?.user?.theme || 'system') === 'system') applyTheme('system');
+});
 
 /* ---------------------------------- toast --------------------------------- */
 

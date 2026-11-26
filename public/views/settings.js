@@ -9,6 +9,11 @@ import {
 export function renderSettings() {
   const u = state.data.user;
   const theme = u.theme || 'system';
+  const installed =
+    typeof window !== 'undefined' &&
+    (window.matchMedia?.('(display-mode: standalone)').matches || window.navigator.standalone === true);
+  const canPrompt = typeof window !== 'undefined' && Boolean(window.__installPrompt);
+  const isIOS = typeof navigator !== 'undefined' && /iPad|iPhone|iPod/.test(navigator.userAgent);
 
   return `
     ${topbar('Settings', 'Account & exam plan')}
@@ -133,6 +138,25 @@ export function renderSettings() {
         </p>
       </section>
     </div>
+
+    <section class="card" style="margin-top:16px" id="install-card">
+      <div class="card-head"><h2>Install on your phone</h2></div>
+      <p class="card-note" style="margin:-6px 0 12px">
+        StarShooter installs to your home screen and opens full-screen, like a normal app.
+        Your data stays in the same account either way.
+      </p>
+      <div id="install-slot">
+        ${
+          installed
+            ? `<p class="card-note">You are already using the installed app.</p>`
+            : canPrompt
+              ? `<button class="btn btn-primary" data-act="install-app">${icon('plus')} Add StarShooter to my home screen</button>`
+              : isIOS
+                ? `<p class="card-note">In Safari, tap <b>Share</b> then <b>Add to Home Screen</b>. It opens full-screen from then on.</p>`
+                : `<p class="card-note">In Chrome, open the <b>⋮</b> menu and choose <b>Install app</b>.</p>`
+        }
+      </div>
+    </section>
 
     <section class="card" style="margin-top:16px">
       <div class="card-head"><h2>Export</h2></div>

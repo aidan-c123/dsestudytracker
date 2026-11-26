@@ -57,7 +57,7 @@ export function renderDesk() {
     ${topbar(
       `${greeting}, ${firstName}.`,
       `Desk · ${new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}`,
-      `<button class="btn btn-quiet" data-act="toggle-theme" title="Toggle dark mode">${icon('moon')}<span>Theme</span></button>
+      `<button class="btn btn-quiet" data-act="toggle-theme" data-theme-icon title="Switch between light and dark">${icon('moon')}<span>Theme</span></button>
        <button class="btn btn-primary" data-act="log-paper">${icon('plus')}<span>Log a paper</span></button>`
     )}
 
@@ -180,7 +180,7 @@ export function renderDesk() {
               : '<div class="empty"><b>No subjects yet.</b>Add your electives to start tracking.</div>'
           }
         </div>
-        <p class="card-note" style="margin-top:12px">Gold marker = target. Fill = current evidence.</p>
+        <p class="card-note" style="margin-top:12px">The tick is your target. The fill is the evidence you have so far.</p>
       </section>
 
       <div class="stack">

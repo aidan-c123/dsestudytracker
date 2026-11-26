@@ -205,10 +205,10 @@ export function attainment(value) {
 }
 
 export const SUBJECT_CATALOG = {
-  CHIN: { name: '中國語文', category: 'core' },
+  CHIN: { name: 'Chinese Language', category: 'core' },
   ENG: { name: 'English Language', category: 'core' },
   MATH: { name: 'Mathematics', category: 'core' },
-  CSD: { name: '公民與社會發展', category: 'core' },
+  CSD: { name: 'Citizenship & Social Development', category: 'core' },
   M1: { name: 'M1 — Calculus & Statistics', category: 'extended' },
   M2: { name: 'M2 — Algebra & Calculus', category: 'extended' },
   BIOL: { name: 'Biology', category: 'elective' },
@@ -217,18 +217,44 @@ export const SUBJECT_CATALOG = {
   ECON: { name: 'Economics', category: 'elective' },
   GEOG: { name: 'Geography', category: 'elective' },
   HIST: { name: 'History', category: 'elective' },
-  CHIST: { name: '中國歷史', category: 'elective' },
-  BAFS: { name: 'BAFS', category: 'elective' },
-  ICT: { name: 'ICT', category: 'elective' },
-  CLIT: { name: '中國文學', category: 'elective' },
+  CHIST: { name: 'Chinese History', category: 'elective' },
+  BAFS: { name: 'Business, Accounting & Financial Studies', category: 'elective' },
+  ICT: { name: 'Information & Communication Technology', category: 'elective' },
+  CLIT: { name: 'Chinese Literature', category: 'elective' },
   LIT: { name: 'Literature in English', category: 'elective' },
-  THS: { name: '旅遊與款待', category: 'elective' },
-  HMSC: { name: '健康與社會關懷', category: 'elective' },
-  DAT: { name: '設計與應用科技', category: 'elective' },
+  THS: { name: 'Tourism & Hospitality Studies', category: 'elective' },
+  HMSC: { name: 'Health Management & Social Care', category: 'elective' },
+  DAT: { name: 'Design & Applied Technology', category: 'elective' },
   VA: { name: 'Visual Arts', category: 'elective' },
   MUS: { name: 'Music', category: 'elective' },
   PE: { name: 'Physical Education', category: 'elective' },
-  ERS: { name: '倫理與宗教', category: 'elective' }
+  ERS: { name: 'Ethics & Religious Studies', category: 'elective' }
 };
 
 export const catalogEntry = (code) => SUBJECT_CATALOG[String(code || '').toUpperCase()] || null;
+
+/**
+ * Catalog names changed from Chinese to English. Accounts created earlier still
+ * carry the old string, so correct it when the account loads rather than
+ * leaving one student with a half-translated subject list.
+ */
+export const LEGACY_SUBJECT_NAMES = {
+  '中國語文': 'Chinese Language',
+  '公民與社會發展': 'Citizenship & Social Development',
+  '中國歷史': 'Chinese History',
+  '中國文學': 'Chinese Literature',
+  '旅遊與款待': 'Tourism & Hospitality Studies',
+  '健康管理與社會關懷': 'Health Management & Social Care',
+  '健康與社會關懷': 'Health Management & Social Care',
+  '設計與應用科技': 'Design & Applied Technology',
+  '倫理與宗教': 'Ethics & Religious Studies',
+  'BAFS': 'Business, Accounting & Financial Studies',
+  'ICT': 'Information & Communication Technology'
+};
+
+/** English name for a code, falling back to the stored name. */
+export function englishName(code, fallback = '') {
+  const entry = catalogEntry(code);
+  if (entry) return entry.name;
+  return LEGACY_SUBJECT_NAMES[fallback] || fallback;
+}

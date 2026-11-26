@@ -1,4 +1,4 @@
-# Desk No. 4 — HKDSE study desk
+# StarShooter — HKDSE study desk
 
 A private study dashboard for Hong Kong DSE candidates: a fifteen-year past
 paper matrix, a focus timer that logs itself, SBA deadlines, target vs.
@@ -27,10 +27,14 @@ public/lib.js        shared helpers, API client, selectors, modal
 public/timer.js      timer state machine, persists across navigation
 public/auth.js       sign in, create account, recovery-code reset
 public/views/        desk, papers, focus, tasks, settings
+public/manifest.webmanifest  installable-app metadata
+public/sw.js         service worker: offline shell, never caches /api
+public/icons/        home-screen icons (192, 512, maskable 512)
 schema.sql           equivalent Postgres/Supabase schema with RLS policies
 scripts/init-db.js   creates Atlas collections, validators and indexes
 docs/schema.md       data model and isolation model
-test/isolation.test.js  16 API checks, including cross-account attempts
+test/isolation.test.js  34 API checks, including cross-account attempts
+test/ui.test.mjs        browser-level checks for the rendered app
 .env.example         environment template
 ```
 
@@ -88,7 +92,7 @@ validators and surfaces connection problems immediately.
 ```bash
 git init
 git add .
-git commit -m "Desk No. 4 — HKDSE study desk"
+git commit -m "StarShooter — HKDSE study desk"
 ```
 
 `.env.local` and `.env` are git-ignored. Never commit the connection string.

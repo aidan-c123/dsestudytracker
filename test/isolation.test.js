@@ -47,12 +47,20 @@ function makeStore() {
       return { user, recoveryCode: 'TEST-CODE-1234' };
     },
     async seedSubjects(userId) {
+      // Names come from the catalogue, exactly as the real store does. Seeding
+      // the code as the name would hide a regression in the English names.
+      const names = {
+        CHIN: 'Chinese Language',
+        ENG: 'English Language',
+        MATH: 'Mathematics',
+        CSD: 'Citizenship & Social Development'
+      };
       for (const [i, code] of ['CHIN', 'ENG', 'MATH', 'CSD'].entries()) {
         const subject = {
           _id: id('s'),
           userId,
           code,
-          name: code,
+          name: names[code],
           category: 'core',
           // CSD is graded Attained / Unattained, so it has no level target.
           targetLevel: code === 'CSD' ? null : 4,
@@ -832,6 +840,54 @@ await test('deleting a cell removes duplicate rows for that cell', async () => {
   const after = await callJson('/me', { cookie: alice });
   const left = after.data.papers.filter((p) => p.subjectId === phys.id && p.year === 2020 && p.paper === 'P1');
   assert.equal(left.length, 0, `the score survived because ${left.length} row(s) remained`);
+});
+
+await test('a blank save is refused instead of storing an empty attempt', async () => {
+  const me = await callJson('/me', { cookie: alice });
+  const subj = me.data.subjects.find((s) => s.code === 'MATH');
+  const before = me.data.papers.filter((p) => p.subjectId === subj.id).length;
+
+  // Every grade and score field blank: this used to be written as a null row,
+  // which made a deleted cell look as if it had come back with no score.
+  const res = await callJson('/papers', {
+    method: 'POST',
+    cookie: alice,
+    body: { subjectId: subj.id, year: 2019, paper: 'P2', score: null, maxScore: null, percentage: null, estimatedLevel: null, attainment: null }
+  });
+  assert.equal(res.status, 400, 'a scoreless attempt should be rejected');
+
+  const after = await callJson('/me', { cookie: alice });
+  const rows = after.data.papers.filter((p) => p.subjectId === subj.id && p.year === 2019 && p.paper === 'P2');
+  assert.equal(rows.length, 0, 'no empty row was written');
+  assert.equal(after.data.papers.filter((p) => p.subjectId === subj.id).length, before);
+});
+
+await test('a grade alone is enough to save an attempt', async () => {
+  const me = await callJson('/me', { cookie: alice });
+  const subj = me.data.subjects.find((s) => s.code === 'MATH');
+  const res = await callJson('/papers', {
+    method: 'POST',
+    cookie: alice,
+    body: { subjectId: subj.id, year: 2019, paper: 'P2', score: null, maxScore: null, percentage: null, estimatedLevel: 5 }
+  });
+  assert.equal(res.status, 201);
+  const row = res.data.papers.find((p) => p.subjectId === subj.id && p.year === 2019 && p.paper === 'P2');
+  assert.equal(row.estimatedLevel, 5, 'the grade is kept');
+  assert.equal(row.score, null, 'no invented raw score');
+});
+
+await test('subject names are presented in English', async () => {
+  const me = await callJson('/me', { cookie: alice });
+  for (const s of me.data.subjects) {
+    assert.ok(
+      !/[\u4e00-\u9fff]/.test(String(s.name || '')),
+      `${s.code} still shows a non-English name: ${s.name}`
+    );
+  }
+  const chinese = me.data.subjects.find((s) => s.code === 'CHIN');
+  assert.equal(chinese.name, 'Chinese Language');
+  const csd = me.data.subjects.find((s) => s.code === 'CSD');
+  assert.equal(csd.name, 'Citizenship & Social Development');
 });
 
 await test('deleting an account removes its records', async () => {

@@ -2,7 +2,8 @@ import { ObjectId } from 'mongodb';
 import { createHash } from 'node:crypto';
 import {
   randomToken, randomRecoveryCode, hashPassword,
-  SESSION_COOKIE, SESSION_SECONDS, readCookie, CORE_CODES, CSD_CODE, SUBJECT_CATALOG
+  SESSION_COOKIE, SESSION_SECONDS, readCookie, CORE_CODES, CSD_CODE, SUBJECT_CATALOG,
+  englishName
 } from './util.js';
 import { getDb } from './db.js';
 
@@ -187,7 +188,10 @@ export async function loadWorkspace(user) {
     subjects: subjects.map((s) => {
       const { createdAt, ...rest } = shape(s);
       void createdAt;
-      return rest;
+      // Older accounts were seeded with Chinese subject names; present the
+      // English catalogue name instead of rewriting the user's own choice.
+      const name = rest.code ? englishName(rest.code, rest.name) : rest.name;
+      return { ...rest, name };
     }),
     papers: papers.map((p) => {
       const s = shape(p);

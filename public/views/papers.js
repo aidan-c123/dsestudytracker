@@ -7,6 +7,38 @@ import {
   papersOf, otherPapersOf, subjectPrediction, subjectAttainment, subjectPct, subjectDsePct, fmtDate,
   usesAttainment, attainmentChip, attainmentLabel, CSD_FIRST_YEAR, OTHER_SOURCES, otherSourceLabel
 } from '../lib.js';
+import { cutoffFor, CUTOFF_SOURCE } from '../cutoffs.js';
+
+/**
+ * The grade boundaries for this subject, in the order a student reads them:
+ * the percentage band, then the raw mark for the latest sitting they can
+ * compare against. Nothing here is presented as an official HKEAA promise —
+ * a cut-off is the last mark that earned the grade, for one particular year.
+ */
+function cutoffNote(subject) {
+  if (!subject || usesAttainment(subject)) return '';
+  const record = cutoffFor(subject.code);
+  if (!record) return '';
+  const bands = ['7', '6', '5', '4', '3', '2']
+    .map((level) => {
+      const p = record.percent?.[{ 7: '5**', 6: '5*', 5: '5', 4: '4', 3: '3', 2: '2' }[level]];
+      return Number.isFinite(p)
+        ? `<span class="cut-tag"><b>${lvlLabel(Number(level))}</b> ${Math.round(p)}%</span>`
+        : '';
+    })
+    .join('');
+  return `<div class="cut-note">
+    <div class="cut-head">
+      <b>Grade boundaries</b>
+      <span class="muted">${esc(record.recentFrom)}–${esc(record.recentTo)} mean, ${esc(subject.code)}</span>
+    </div>
+    <div class="cut-tags">${bands}</div>
+    <div class="cut-foot">
+      From <a href="${CUTOFF_SOURCE.url}" target="_blank" rel="noopener noreferrer">${esc(CUTOFF_SOURCE.name)}</a>.
+      A boundary is the last mark that earned the grade in that year, not a prediction for yours.
+    </div>
+  </div>`;
+}
 
 export function renderPapers() {
   if (!state.data.subjects.length) {
@@ -63,12 +95,12 @@ export function renderPapers() {
     ${topbar(
       'Past paper matrix',
       `Papers · ${years[years.length - 1]}–${years[0]}`,
-      `<button class="btn btn-quiet" data-act="add-subject">${icon('plus')}<span>Subject</span></button>
-       <button class="btn btn-quiet" data-act="other-paper" data-subject="${subject.id}">${icon('plus')}<span>Other paper</span></button>
-       <button class="btn btn-primary" data-act="log-paper" data-subject="${subject.id}">${icon('plus')}<span>Log attempt</span></button>`
+      `<button class="btn btn-quiet" data-act="add-subject" aria-label="Add a subject" title="Add a subject">${icon('plus')}<span>Subject</span></button>
+       <button class="btn btn-quiet" data-act="other-paper" data-subject="${subject.id}" aria-label="Log a paper that is not a DSE past paper" title="Other paper">${icon('layers')}<span>Other paper</span></button>
+       <button class="btn btn-primary" data-act="log-paper" data-subject="${subject.id}" aria-label="Log a paper attempt" title="Log attempt">${icon('pen')}<span>Log attempt</span></button>`
     )}
 
-    <div class="stat-row">
+    <div class="stat-row stat-row-5">
       <div class="stat"><div class="k">DSE papers logged</div><div class="v">${logs.length} <small>/ ${years.length * papers.length}</small></div></div>
       <div class="stat"><div class="k">Matrix filled</div><div class="v">${completion}%</div></div>
       <div class="stat"><div class="k">Other papers</div><div class="v">${otherLogs.length}</div></div>
@@ -95,6 +127,12 @@ export function renderPapers() {
         <span class="spacer"></span>
         <button class="btn btn-ghost btn-sm" data-act="edit-subject" data-id="${subject.id}">${icon('edit')} ${csd ? 'Attainment' : 'Target'}</button>
       </div>
+
+      ${
+        // Where the grade boundaries came from, and what they mean in marks.
+        // Shown above the matrix so a score can be read against a real boundary.
+        cutoffNote(subject)
+      }
 
       <div class="subject-tabs" role="group" aria-label="Choose subject">
         ${state.data.subjects

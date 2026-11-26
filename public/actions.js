@@ -4,11 +4,12 @@
 
 import {
   $, $$, esc, icon, state, api, refresh, hooks, toast, openModal, closeModal,
-  applyTheme, submitting, errorText, subjectById, subjectPrediction, papersOf, papersFor,
+  applyTheme, toggleTheme, submitting, errorText, subjectById, subjectPrediction, papersOf, papersFor,
   papersForYear, matrixPapersFor, OTHER_SOURCES, BAND_LEVELS, bandsFor, levelFromPercentage, pct,
   lvlLabel, lvlChip, fmtDate, toLocalInput, daysUntil, subjectDsePct,
   usesAttainment, CSD_CODE, CSD_FIRST_YEAR, yearsFor, otherSourceLabel
 } from './lib.js';
+import { cutoffFor, CUTOFF_SOURCE } from './cutoffs.js';
 import {
   startTimer, pauseTimer, resumeTimer, stopTimer, timerState, paintTimer, BREAK_MINUTES
 } from './timer.js';
@@ -17,10 +18,10 @@ import { presetButtonsHTML } from './views/focus.js';
 /* --------------------------------- subjects -------------------------------- */
 
 const CATALOG = [
-  { code: 'CHIN', name: '中國語文', category: 'core' },
+  { code: 'CHIN', name: 'Chinese Language', category: 'core' },
   { code: 'ENG', name: 'English Language', category: 'core' },
   { code: 'MATH', name: 'Mathematics', category: 'core' },
-  { code: 'CSD', name: '公民與社會發展', category: 'core' },
+  { code: 'CSD', name: 'Citizenship & Social Development', category: 'core' },
   { code: 'M1', name: 'M1 — Calculus & Statistics', category: 'extended' },
   { code: 'M2', name: 'M2 — Algebra & Calculus', category: 'extended' },
   { code: 'BIOL', name: 'Biology', category: 'elective' },
@@ -29,31 +30,31 @@ const CATALOG = [
   { code: 'ECON', name: 'Economics', category: 'elective' },
   { code: 'GEOG', name: 'Geography', category: 'elective' },
   { code: 'HIST', name: 'History', category: 'elective' },
-  { code: 'CHIST', name: '中國歷史', category: 'elective' },
-  { code: 'BAFS', name: 'BAFS', category: 'elective' },
-  { code: 'ICT', name: 'ICT', category: 'elective' },
-  { code: 'CLIT', name: '中國文學', category: 'elective' },
+  { code: 'CHIST', name: 'Chinese History', category: 'elective' },
+  { code: 'BAFS', name: 'Business, Accounting & Financial Studies', category: 'elective' },
+  { code: 'ICT', name: 'Information & Communication Technology', category: 'elective' },
+  { code: 'CLIT', name: 'Chinese Literature', category: 'elective' },
   { code: 'LIT', name: 'Literature in English', category: 'elective' },
-  { code: 'THS', name: '旅遊與款待', category: 'elective' },
-  { code: 'HMSC', name: '健康管理與社會關懷', category: 'elective' },
-  { code: 'DAT', name: '設計與應用科技', category: 'elective' },
+  { code: 'THS', name: 'Tourism & Hospitality Studies', category: 'elective' },
+  { code: 'HMSC', name: 'Health Management & Social Care', category: 'elective' },
+  { code: 'DAT', name: 'Design & Applied Technology', category: 'elective' },
   { code: 'VA', name: 'Visual Arts', category: 'elective' },
   { code: 'MUS', name: 'Music', category: 'elective' },
   { code: 'PE', name: 'Physical Education', category: 'elective' },
-  { code: 'ERS', name: '倫理與宗教', category: 'elective' }
+  { code: 'ERS', name: 'Ethics & Religious Studies', category: 'elective' }
 ];
 
 /* ------------------------------- delegated UI ------------------------------ */
 
 const HANDLERS = {
-  'toggle-theme': async () => {
-    const order = ['system', 'light', 'dark'];
-    const current = state.data.user.theme || 'system';
-    const next = order[(order.indexOf(current) + 1) % order.length];
-    applyTheme(next);
-    const data = await api('/me', { method: 'PATCH', body: { theme: next } });
-    await refresh(data);
+  'toggle-theme': () => {
+    // Paint first: the theme is a local preference, so waiting on the server
+    // would make the button feel broken. The save happens quietly after.
+    const next = toggleTheme();
     toast(`Theme: ${next}.`);
+    api('/me', { method: 'PATCH', body: { theme: next } }).catch(() => {
+      toast('Theme saved for this device only.', 'error');
+    });
   },
 
   'quick-log': () => openPaperModal(),
@@ -105,11 +106,22 @@ const HANDLERS = {
       (p) => p.subjectId === subjectId && Number(p.year) === year && p.paper === paper
     );
     if (!matches.length) return;
+    // One row is enough: the server clears the whole cell. Asking per row would
+    // also fail on a stale id, which is how a "deleted" score used to linger.
     let data;
-    for (const row of matches) {
-      data = await api(`/papers/${row.id}`, { method: 'DELETE' });
+    try {
+      data = await api(`/papers/${matches[0].id}`, { method: 'DELETE' });
+    } catch (err) {
+      toast(errorText(err), 'error');
+      return;
     }
     await refresh(data);
+    if (state.data.papers.some((p) => p.subjectId === subjectId && Number(p.year) === year && p.paper === paper)) {
+      // Extremely defensive: the cell is still there, so say so rather than
+      // claiming success while the score is on screen.
+      toast('Could not remove that cell. Reload and try again.', 'error');
+      return;
+    }
     toast('Attempt removed.');
   },
 
@@ -149,6 +161,20 @@ const HANDLERS = {
   },
 
   'add-subject': () => openSubjectModal(),
+
+  'install-app': async () => {
+    const prompt = window.__installPrompt;
+    if (!prompt) {
+      toast('Use your browser menu to install the app.');
+      return;
+    }
+    prompt.prompt();
+    const { outcome } = await prompt.userChoice.catch(() => ({ outcome: 'dismissed' }));
+    window.__installPrompt = null;
+    delete document.documentElement.dataset.installable;
+    if (outcome === 'accepted') toast('Installed. Open it from your home screen.');
+    hooks.renderView();
+  },
   'edit-subject': (el) => {
     const subject = subjectById(el.dataset.id);
     if (subject) openSubjectModal(subject);
@@ -256,11 +282,18 @@ const HANDLERS = {
 
   'manual-log': () => openManualLogModal(),
 
-  'theme': async (el) => {
+  'theme': (el) => {
+    // Pin the choice immediately and repaint just the pills; no page rebuild,
+    // so there is no flash or pause between light and dark.
     const theme = el.dataset.theme;
     applyTheme(theme);
-    const data = await api('/me', { method: 'PATCH', body: { theme } });
-    await refresh(data);
+    if (state.data?.user) state.data.user.theme = theme;
+    document.querySelectorAll('[data-act="theme"]').forEach((b) => {
+      b.setAttribute('aria-pressed', String(b.dataset.theme === theme));
+    });
+    api('/me', { method: 'PATCH', body: { theme } }).catch(() => {
+      toast('Theme saved for this device only.', 'error');
+    });
   },
 
   'export-data': () => {
@@ -355,7 +388,7 @@ function openManualLogModal() {
         </div>
         <div class="field">
           <label for="ml-label">What did you work on?</label>
-          <input id="ml-label" maxlength="80" placeholder="Trig identities drill" />
+          <input id="ml-label" maxlength="80" placeholder="What you worked on" />
         </div>
       </form>`,
     footer: `<button class="btn btn-quiet" data-close type="button">Cancel</button>
@@ -450,21 +483,21 @@ function openPaperModal({ subjectId, year, paper, paper: paperRecord } = {}) {
         <div class="form-grid two">
           <div class="field">
             <label for="pf-score">Raw score</label>
-            <input id="pf-score" type="number" min="0" step="0.5" value="${existing?.score ?? ''}" placeholder="72" />
+            <input id="pf-score" type="number" min="0" step="0.5" value="${existing?.score ?? ''}" placeholder="Score" />
           </div>
           <div class="field">
             <label for="pf-max">Out of</label>
-            <input id="pf-max" type="number" min="0" step="0.5" value="${existing?.maxScore ?? ''}" placeholder="100" />
+            <input id="pf-max" type="number" min="0" step="0.5" value="${existing?.maxScore ?? ''}" placeholder="Total" />
           </div>
         </div>
         <div class="field">
           <label for="pf-pct">Percentage <span class="muted">(auto from score, or type it)</span></label>
-          <input id="pf-pct" type="number" min="0" max="100" step="0.1" value="${existing?.percentage ?? ''}" placeholder="72" />
+          <input id="pf-pct" type="number" min="0" max="100" step="0.1" value="${existing?.percentage ?? ''}" placeholder="Percentage" />
           <span class="hint" id="pf-hint">Leave blank if you only want to note the grade. ${list.length ? `Papers for this subject: ${list.join(', ')}.` : ''}</span>
         </div>
         <div class="field">
           <label for="pf-notes">Notes</label>
-          <textarea id="pf-notes" maxlength="2000" placeholder="Section B ran long; Q9(b) lost marks on units.">${esc(existing?.notes || '')}</textarea>
+          <textarea id="pf-notes" maxlength="2000" placeholder="Anything worth remembering about this attempt.">${esc(existing?.notes || '')}</textarea>
         </div>
       </form>`,
     footer: `
@@ -544,12 +577,17 @@ function openPaperModal({ subjectId, year, paper, paper: paperRecord } = {}) {
       if (existing) {
         dialog.querySelector('[data-delete]').addEventListener('click', async () => {
           if (!confirm('Delete this attempt?')) return;
+          const btn = dialog.querySelector('[data-delete]');
+          const restore = submitting(btn, 'Deleting…');
           try {
             const data = await api(`/papers/${existing.id}`, { method: 'DELETE' });
-            closeModal();
+            // Refresh first, then close: the matrix is already correct when the
+            // dialog disappears, so the old score never flashes back.
             await refresh(data);
+            closeModal();
             toast('Attempt removed.');
           } catch (err) {
+            restore();
             toast(errorText(err), 'error');
           }
         });
@@ -558,17 +596,37 @@ function openPaperModal({ subjectId, year, paper, paper: paperRecord } = {}) {
       dialog.querySelector('#paper-form').addEventListener('submit', async (e) => {
         e.preventDefault();
         const btn = dialog.querySelector('button[form="paper-form"]');
+        const read = (id) => dialog.querySelector(id).value;
+        const score = read('#pf-score') === '' ? null : Number(read('#pf-score'));
+        const maxScore = read('#pf-max') === '' ? null : Number(read('#pf-max'));
+        const percentage = read('#pf-pct') === '' ? null : Number(read('#pf-pct'));
+        const estimatedLevel = read('#pf-level') ? Number(read('#pf-level')) : null;
+        const attainment = read('#pf-attain') || null;
+
+        // A record with no score, no percentage and no grade is not an attempt,
+        // it is an empty cell. Writing one is what made "delete" look like it
+        // had saved a blank instead of removing anything, so refuse it here.
+        const hasEvidence =
+          score !== null ||
+          percentage !== null ||
+          estimatedLevel !== null ||
+          attainment !== null;
+        if (!hasEvidence) {
+          toast('Add a score or a grade first, or use Delete to remove this attempt.', 'error');
+          return;
+        }
+
         const restore = submitting(btn, 'Saving…');
         const body = {
-          subjectId: dialog.querySelector('#pf-subject').value,
-          paper: dialog.querySelector('#pf-paper').value,
-          year: Number(dialog.querySelector('#pf-year').value),
-          score: dialog.querySelector('#pf-score').value === '' ? null : Number(dialog.querySelector('#pf-score').value),
-          maxScore: dialog.querySelector('#pf-max').value === '' ? null : Number(dialog.querySelector('#pf-max').value),
-          percentage: dialog.querySelector('#pf-pct').value === '' ? null : Number(dialog.querySelector('#pf-pct').value),
-          estimatedLevel: dialog.querySelector('#pf-level').value ? Number(dialog.querySelector('#pf-level').value) : null,
-          attainment: dialog.querySelector('#pf-attain').value || null,
-          notes: dialog.querySelector('#pf-notes').value
+          subjectId: read('#pf-subject'),
+          paper: read('#pf-paper'),
+          year: Number(read('#pf-year')),
+          score,
+          maxScore,
+          percentage,
+          estimatedLevel,
+          attainment,
+          notes: read('#pf-notes')
         };
         try {
           let data;
@@ -643,7 +701,7 @@ function openOtherPaperModal(record = null) {
         <div class="field">
           <label for="op-title">Name</label>
           <input id="op-title" maxlength="120" required value="${esc(existing?.title || '')}"
-            placeholder="St Paul's mock 2026 · Paper 1" />
+            placeholder="School mock · paper name and year" />
         </div>
         <div class="form-grid two">
           <div class="field">
@@ -669,16 +727,16 @@ function openOtherPaperModal(record = null) {
         <div class="form-grid two">
           <div class="field">
             <label for="op-score">Raw score</label>
-            <input id="op-score" type="number" min="0" step="0.5" value="${existing?.score ?? ''}" placeholder="63" />
+            <input id="op-score" type="number" min="0" step="0.5" value="${existing?.score ?? ''}" placeholder="Score" />
           </div>
           <div class="field">
             <label for="op-max">Out of</label>
-            <input id="op-max" type="number" min="0" step="0.5" value="${existing?.maxScore ?? ''}" placeholder="90" />
+            <input id="op-max" type="number" min="0" step="0.5" value="${existing?.maxScore ?? ''}" placeholder="Total" />
           </div>
         </div>
         <div class="field">
           <label for="op-notes">Notes</label>
-          <textarea id="op-notes" maxlength="2000" placeholder="Harsher marking than DSE; Section B ran long.">${esc(existing?.notes || '')}</textarea>
+          <textarea id="op-notes" maxlength="2000" placeholder="Marked more strictly than the DSE; the last section ran long.">${esc(existing?.notes || '')}</textarea>
         </div>
       </form>`,
     footer: `
@@ -782,15 +840,15 @@ function openErrorModal() {
         </div>
         <div class="field">
           <label for="er-topic">Topic or question</label>
-          <input id="er-topic" maxlength="120" placeholder="Log laws — combining bases" required />
+          <input id="er-topic" maxlength="120" placeholder="Topic or question you lost marks on" required />
         </div>
         <div class="field">
           <label for="er-ref">Reference <span class="muted">(optional)</span></label>
-          <input id="er-ref" maxlength="80" placeholder="2023 P1 Q8" />
+          <input id="er-ref" maxlength="80" placeholder="Year and paper, e.g. 2024 P1" />
         </div>
         <div class="field">
           <label for="er-note">What went wrong</label>
-          <textarea id="er-note" maxlength="2000" placeholder="Forgot to apply the power rule before subtracting."></textarea>
+          <textarea id="er-note" maxlength="2000" placeholder="What went wrong, and what to do differently next time."></textarea>
         </div>
       </form>`,
     footer: `<button class="btn btn-quiet" data-close type="button">Cancel</button>
@@ -836,7 +894,7 @@ function openTaskModal(task = null) {
       <form id="task-form" class="form-grid">
         <div class="field">
           <label for="tk-title">Title</label>
-          <input id="tk-title" maxlength="140" value="${esc(task?.title || '')}" placeholder="Chemistry SBA — practical report draft" required />
+          <input id="tk-title" maxlength="140" value="${esc(task?.title || '')}" placeholder="SBA task or revision block" required />
         </div>
         <div class="form-grid two">
           <div class="field">
@@ -869,7 +927,7 @@ function openTaskModal(task = null) {
         </div>
         <div class="field">
           <label for="tk-notes">Notes</label>
-          <textarea id="tk-notes" maxlength="2000" placeholder="Hand in to Mr Chan; include error analysis.">${esc(task?.notes || '')}</textarea>
+          <textarea id="tk-notes" maxlength="2000" placeholder="Submission details, requirements, or who marks it.">${esc(task?.notes || '')}</textarea>
         </div>
       </form>`,
     footer: `<button class="btn btn-quiet" data-close type="button">Cancel</button>
@@ -972,6 +1030,7 @@ function openSubjectModal(subject = null) {
             ).join('')}
           </div>
           <span class="hint" id="sj-band-hint"></span>
+          <span class="hint" id="sj-band-source"></span>
         </div>
       </form>`,
     footer: `<button class="btn btn-quiet" data-close type="button">Cancel</button>
@@ -996,12 +1055,23 @@ function openSubjectModal(subject = null) {
       // The hint is the honest part: it says what the current bands would call
       // the student's own average, so a bad calibration is visible immediately.
       const paintBandHint = () => {
+        // Say where the numbers came from, so nobody mistakes them for official
+        // HKEAA boundaries. The DSE00 tables are real published marks, but a
+        // grade boundary is still the last mark that got that grade, not a
+        // promise about next year.
+        const source = dialog.querySelector('#sj-band-source');
+        if (source) {
+          const record = cutoffFor(subject ? subject.code : codeSelect?.value);
+          source.innerHTML = record
+            ? `Starting bands come from ${CUTOFF_SOURCE.name} (${esc(record.recentFrom)}–${esc(record.recentTo)} sittings). <a href="${CUTOFF_SOURCE.url}" target="_blank" rel="noopener noreferrer">Source</a> · a grade boundary is the last mark that earned it, so tune these if your school marks differently.`
+            : 'Starting bands are a general estimate. Add a subject with published cut-offs, or tune these to your school’s conversions.';
+        }
+
         if (!bandHint) return;
         const target = subject || { code: codeSelect?.value, gradeBands: readBands() };
         const average = subjectDsePct(subject?.id);
         if (average === null) {
-          bandHint.textContent =
-            'Starting bands. HKEAA does not publish official cut-offs, so tune these to your school’s conversions.';
+          bandHint.textContent = '';
           return;
         }
         const level = levelFromPercentage(average, { ...target, gradeBands: readBands() });

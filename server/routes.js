@@ -286,6 +286,16 @@ export async function handleApi(request, path, injectedStore) {
         return { error: 'Choose Attained or Not attained.' };
       }
 
+      // An attempt must carry something to grade it. Blank rows used to be
+      // written here, which left a matrix cell looking "logged" with no score
+      // and made deletion look like it had only stored a null.
+      const pctValue = percentageOf(score, maxScore, body.percentage);
+      const levelValue = csd ? null : level(body.estimatedLevel);
+      const attainmentValue = csd ? marked : null;
+      if (pctValue === null && levelValue === null && attainmentValue === null) {
+        return { error: 'Add a score or a grade before saving this attempt.' };
+      }
+
       return {
         input: {
           subjectId: text(body.subjectId, 40),
@@ -293,10 +303,10 @@ export async function handleApi(request, path, injectedStore) {
           paper,
           score,
           maxScore,
-          percentage: percentageOf(score, maxScore, body.percentage),
+          percentage: pctValue,
           // Levels never apply to CSD, attainment never applies to a levelled subject.
-          estimatedLevel: csd ? null : level(body.estimatedLevel),
-          attainment: csd ? marked : null,
+          estimatedLevel: levelValue,
+          attainment: attainmentValue,
           notes: text(body.notes, LIMITS.text)
         }
       };
