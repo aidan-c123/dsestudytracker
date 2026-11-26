@@ -23,12 +23,12 @@ function pbkdf2(password, salt, iterations = 210000) {
   return pbkdf2Sync(password, salt, iterations, 32, 'sha256');
 }
 
-export function hashPassword(password) {
+export function hashPassword(password, iterations = 210000) {
   const salt = randomBytes(16);
   return {
-    hash: pbkdf2(password, salt).toString('hex'),
+    hash: pbkdf2(password, salt, iterations).toString('hex'),
     salt: salt.toString('hex'),
-    iterations: 210000
+    iterations
   };
 }
 
@@ -129,6 +129,71 @@ export const ATTAINMENT = {
 
 /** True when a subject is graded attained/unattained rather than on levels. */
 export const usesAttainment = (subject) => String(subject?.code || '').toUpperCase() === CSD_CODE;
+
+/** Grade bands: percentages at which Level 2…5** start. */
+export function gradeBands(input) {
+  const LEVELS = [2, 3, 4, 5, 6, 7];
+  if (input === null || input === undefined) return null;
+  if (typeof input !== 'object' || Array.isArray(input)) return null;
+  const out = {};
+  for (const lvl of LEVELS) {
+    const raw = input[lvl];
+    if (raw === undefined || raw === null || raw === '') continue;
+    const n = Math.round(Number(raw));
+    if (!Number.isFinite(n) || n < 1 || n > 99) return null;
+    out[lvl] = n;
+  }
+  if (!Object.keys(out).length) return null;
+  // Bands must climb, or every prediction above the inversion is nonsense.
+  let previous = 0;
+  for (const lvl of LEVELS) {
+    if (out[lvl] === undefined) continue;
+    if (out[lvl] <= previous) return null;
+    previous = out[lvl];
+  }
+  return out;
+}
+
+/**
+ * Papers that a subject actually had in a given year. Chinese dropped Paper 3
+ * (Listening & Integrated Skills) and Paper 4 (Speaking) from 2024, so old
+ * sittings remain loggable while new ones cannot claim a Paper 3.
+ */
+export const CHINESE_REFORM_YEAR = 2024;
+
+export function papersForYear(code, year) {
+  const subject = String(code || '').toUpperCase();
+  const y = Number(year);
+  if (subject === CSD_CODE) return ['P1'];
+  if (subject === 'CHIN') return y < CHINESE_REFORM_YEAR ? ['P1', 'P2', 'P3', 'P4'] : ['P1', 'P2'];
+  return null; // no year-dependent rules for other subjects
+}
+
+/** True when a paper is not offered for that subject in that year. */
+export function paperRetired(code, year, paper) {
+  const allowed = papersForYear(code, year);
+  if (!allowed) return false;
+  return !allowed.includes(String(paper || '').toUpperCase());
+}
+
+/**
+ * Papers that are not DSE past papers. The matrix stays DSE-only, so these are
+ * logged separately: school mocks, other schools' papers, textbooks, practice
+ * papers and other exam boards.
+ */
+export const OTHER_SOURCES = {
+  school: 'School mock',
+  'other-school': 'Other school mock',
+  textbook: 'Textbook / exercise',
+  practice: 'HKEAA practice paper',
+  'other-board': 'Other exam board',
+  other: 'Other'
+};
+
+export const otherSource = (value) => {
+  const key = text(value, 30).toLowerCase();
+  return Object.prototype.hasOwnProperty.call(OTHER_SOURCES, key) ? key : 'school';
+};
 
 export function attainment(value) {
   const key = text(value, 20).toLowerCase();

@@ -41,7 +41,6 @@ export const lvlLabel = (n) => (n ? LEVEL_LABELS[n] || String(n) : '—');
 export const lvlChip = (n) => `<span class="lvl lvl-${n || 0}">${lvlLabel(n)}</span>`;
 
 /* --------------------------------- CSD ----------------------------------- */
-
 /**
  * CSD was first examined in 2024 and HKEAA reports it only as
  * "Attained" / "Unattained". No levels, one paper, and no SBA.
@@ -64,8 +63,32 @@ export const yearsFor = (subject) => {
   return out;
 };
 
+/* ----------------------------- other papers ------------------------------ */
+
+/**
+ * Papers that are not DSE past papers. They stay out of the matrix so it
+ * remains an honest record of real past papers, but they count towards the
+ * average, because they are still evidence of where a student is.
+ */
+export const OTHER_SOURCES = {
+  school: 'School mock',
+  'other-school': 'Other school mock',
+  textbook: 'Textbook / exercise',
+  practice: 'HKEAA practice paper',
+  'other-board': 'Other exam board',
+  other: 'Other'
+};
+
+export const otherSourceLabel = (key) => OTHER_SOURCES[key] || 'Other';
+
+export const otherPapersOf = (subjectId) =>
+  (state.data.otherPapers || []).filter((p) => p.subjectId === subjectId);
+
 export const SUBJECT_CODES = {
-  CHIN: ['P1', 'P2', 'P3'],
+  // From 2024 Chinese has only P1 (Reading, 40%) and P2 (Writing, 45%) plus
+  // SBA. Papers 3 and 4 were abolished in the 2024 core-subject reform, so
+  // they are no longer offered for new attempts.
+  CHIN: ['P1', 'P2'],
   ENG: ['P1', 'P2', 'P3', 'P4'],
   MATH: ['P1', 'P2'],
   M1: ['P1'],
@@ -73,6 +96,35 @@ export const SUBJECT_CODES = {
   CSD: ['P1']
 };
 export const papersFor = (subject) => SUBJECT_CODES[subject?.code] || ['P1', 'P2'];
+
+const PAPER_ORDER = ['P1', 'P2', 'P3', 'P4', 'P5', 'SBA'];
+const paperRank = (paper) => {
+  const i = PAPER_ORDER.indexOf(paper);
+  return i === -1 ? PAPER_ORDER.length : i;
+};
+
+/**
+ * Columns for the matrix: the papers a subject has today, plus any paper the
+ * student already logged. That keeps pre-2024 Chinese Paper 3 records visible
+ * after the reform, without offering Paper 3 for new attempts.
+ */
+export function matrixPapersFor(subject, logs = []) {
+  const logged = logs.map((l) => l.paper).filter(Boolean);
+  const all = [...new Set([...papersFor(subject), ...logged])];
+  return all.sort((a, b) => paperRank(a) - paperRank(b));
+}
+
+/**
+ * Papers actually sat in a given year. Chinese lost Paper 3 (Listening &
+ * Integrated Skills) and Paper 4 (Speaking) from 2024, so an old sitting can
+ * still be logged truthfully while a new one cannot claim a Paper 3.
+ */
+export function papersForYear(subject, year) {
+  const code = String(subject?.code || '').toUpperCase();
+  const y = Number(year);
+  if (code === 'CHIN' && Number.isFinite(y) && y < 2024) return ['P1', 'P2', 'P3', 'P4'];
+  return papersFor(subject);
+}
 
 export const YEARS = Array.from({ length: 15 }, (_, i) => 2026 - i);
 
@@ -121,16 +173,85 @@ export const pct = (n) => (Number.isFinite(n) ? `${Math.round(n)}%` : '—');
 export const initials = (name = '') =>
   name.trim().split(/\s+/).slice(0, 2).map((p) => p[0]?.toUpperCase() || '').join('') || 'D';
 
-export const levelFromPercentage = (p) => {
+/* ------------------------------- grade bands ------------------------------ */
+
+/**
+ * HKEAA does not publish per-level raw-mark cut-offs. Levels are set against
+ * the year's cohort and can move by several marks between sessions, so any
+ * exact-looking number would be invented. What is stable is the *shape*: 5**
+ * is the top percentile, 2 is roughly the pass, and each level is a band.
+ *
+ * So the app speaks in two honest things:
+ *   1. a percentage-of-marks band per level, which the student can shift to
+ *      match their own school's past-paper conversion; and
+ *   2. HKEAA's published level descriptors, which describe what a 5** answer
+ *      actually does.
+ * The education bureau's indicative descriptors put Level 3 near 50% and
+ * Level 4 near 60% of marks on many papers; that is the starting point, not
+ * an official boundary.
+ */
+export const DEFAULT_BANDS = { 2: 35, 3: 45, 4: 55, 5: 65, 6: 75, 7: 85 };
+
+export const BAND_LEVELS = [2, 3, 4, 5, 6, 7];
+
+/** One-line HKEAA level descriptors, paraphrased for quick reading. */
+export const LEVEL_DESCRIPTORS = {
+  1: 'Just starting: recalls fragments, needs the question restated.',
+  2: 'Basic: handles straightforward questions, shaky on unfamiliar material.',
+  3: 'Solid: understands the core course, works through routine problems.',
+  4: 'Strong: applies ideas to new contexts and explains reasoning clearly.',
+  5: 'Very strong: accurate, well organised, selective use of evidence.',
+  6: 'Excellent: consistently precise, notices what the examiner rewards.',
+  7: 'Top band: full control of the paper, including the hardest discriminators.'
+};
+
+const bandCache = new Map();
+
+/**
+ * Bands are resolved in this order: the subject's own tuning, the account's
+ * default, then the built-in starting point. That keeps one student's
+ * calibration from leaking into every subject.
+ */
+export function bandsFor(subject) {
+  const custom = subject?.gradeBands;
+  const key = JSON.stringify(custom || null);
+  if (bandCache.has(key)) return bandCache.get(key);
+  const resolved = { ...DEFAULT_BANDS };
+  if (custom && typeof custom === 'object') {
+    for (const lvl of BAND_LEVELS) {
+      const v = Number(custom[lvl]);
+      if (Number.isFinite(v) && v > 0 && v < 100) resolved[lvl] = Math.round(v);
+    }
+  }
+  // Keep the bands monotonic even if a hand-edited value inverted them.
+  let previous = 0;
+  for (const lvl of [2, 3, 4, 5, 6, 7]) {
+    resolved[lvl] = Math.max(resolved[lvl], previous + 1);
+    previous = resolved[lvl];
+  }
+  bandCache.set(key, resolved);
+  return resolved;
+}
+
+/** Highest level whose band the percentage reaches; 1 below the Level 2 band. */
+export const levelFromPercentage = (p, subject = null) => {
   if (!Number.isFinite(p)) return null;
-  if (p >= 88) return 7;
-  if (p >= 78) return 6;
-  if (p >= 68) return 5;
-  if (p >= 58) return 4;
-  if (p >= 48) return 3;
-  if (p >= 38) return 2;
+  const bands = bandsFor(subject);
+  for (const lvl of [7, 6, 5, 4, 3, 2]) {
+    if (p >= bands[lvl]) return lvl;
+  }
   return 1;
 };
+
+/** Rough distance to the next band, for the "how close am I" hint. */
+export function nextBand(p, subject = null) {
+  if (!Number.isFinite(p)) return null;
+  const level = levelFromPercentage(p, subject);
+  if (level >= 7) return null;
+  const bands = bandsFor(subject);
+  const next = level + 1;
+  return { level: next, need: Math.max(0, Math.ceil(bands[next] - p)) };
+}
 
 export const toLocalInput = (date = new Date()) => {
   const d = new Date(date);
@@ -147,6 +268,8 @@ export const state = {
   taskFilter: 'open',
   errorSubject: 'all',
   timerPresetMinutes: 25,
+  presetQuery: '',
+  presetKey: '',
   timerSubject: null
 };
 
@@ -205,26 +328,48 @@ export const subjectById = (id) => state.data.subjects.find((s) => s.id === id) 
 export const papersOf = (subjectId) => state.data.papers.filter((p) => p.subjectId === subjectId);
 export const focusLogs = () => state.data.logs.filter((l) => l.mode === 'focus');
 
+/**
+ * Every marked attempt for a subject: DSE past papers plus mocks, textbooks
+ * and practice papers. The matrix shows only the first kind, but predictions
+ * and averages use both.
+ */
+export const evidenceOf = (subjectId) => [
+  ...papersOf(subjectId),
+  ...otherPapersOf(subjectId)
+];
+
 export function subjectPrediction(subject) {
   if (subject.predictedLevel) return { level: subject.predictedLevel, source: 'school' };
-  const withLevel = papersOf(subject.id).filter((p) => p.estimatedLevel);
+  // Most recent first: a mock from this month says more than a 2019 paper.
+  const evidence = evidenceOf(subject.id)
+    .slice()
+    .sort((a, b) => recency(b) - recency(a));
+  const withLevel = evidence.filter((p) => p.estimatedLevel);
   if (withLevel.length) {
     const recent = withLevel.slice(0, 4);
     return { level: Math.round(recent.reduce((a, p) => a + p.estimatedLevel, 0) / recent.length), source: 'papers' };
   }
-  const withPct = papersOf(subject.id).filter((p) => Number.isFinite(p.percentage));
+  const withPct = evidence.filter((p) => Number.isFinite(p.percentage));
   if (!withPct.length) return { level: null, source: 'none' };
-  return { level: levelFromPercentage(withPct.reduce((a, p) => a + p.percentage, 0) / withPct.length), source: 'pct' };
+  const average = withPct.reduce((a, p) => a + p.percentage, 0) / withPct.length;
+  return { level: levelFromPercentage(average, subject), source: 'pct', percentage: average };
 }
+
+/** Sortable timestamp for either kind of paper. */
+const recency = (paper) => {
+  const raw = paper.takenOn || paper.attemptedAt;
+  const t = raw ? new Date(`${String(raw).slice(0, 10)}T00:00:00`).getTime() : 0;
+  return Number.isFinite(t) ? t : 0;
+};
 
 /**
  * CSD has no levels, so attainment is predicted separately: the most recent
- * logged paper carries the call, falling back to the school's judgement.
+ * marked attempt carries the call, falling back to the school's judgement.
  */
 export function subjectAttainment(subject) {
-  const marked = papersOf(subject.id)
+  const marked = evidenceOf(subject.id)
     .filter((p) => p.attainment === 'attained' || p.attainment === 'unattained')
-    .sort((a, b) => b.year - a.year);
+    .sort((a, b) => recency(b) - recency(a));
   if (marked.length) return { value: marked[0].attainment, source: 'papers' };
   if (subject.attainment) return { value: subject.attainment, source: 'school' };
   const avg = subjectPct(subject.id);
@@ -234,6 +379,13 @@ export function subjectAttainment(subject) {
 }
 
 export function subjectPct(subjectId) {
+  const list = evidenceOf(subjectId).filter((p) => Number.isFinite(p.percentage));
+  if (!list.length) return null;
+  return Math.round((list.reduce((a, p) => a + p.percentage, 0) / list.length) * 10) / 10;
+}
+
+/** Average across DSE past papers only, so the matrix's own number stays pure. */
+export function subjectDsePct(subjectId) {
   const list = papersOf(subjectId).filter((p) => Number.isFinite(p.percentage));
   if (!list.length) return null;
   return Math.round((list.reduce((a, p) => a + p.percentage, 0) / list.length) * 10) / 10;

@@ -15,7 +15,7 @@ import { hashPassword, verifyPassword } from '../server/util.js';
 function makeStore() {
   const users = new Map();
   const sessions = new Map();
-  const data = { subjects: new Map(), pastPapers: new Map(), studyLogs: new Map(), sbaTasks: new Map(), errorLogs: new Map() };
+  const data = { subjects: new Map(), pastPapers: new Map(), studyLogs: new Map(), sbaTasks: new Map(), errorLogs: new Map(), otherPapers: new Map() };
   let seq = 0;
   const id = (prefix) => `${prefix}${String(++seq).padStart(20, '0')}`;
   const byUser = (table, userId) => [...data[table].values()].filter((d) => d.userId === userId);
@@ -120,7 +120,8 @@ function makeStore() {
         papers: byUser('pastPapers', userId).map(shape),
         logs: byUser('studyLogs', userId).map(shape),
         tasks: byUser('sbaTasks', userId).map(shape),
-        errors: byUser('errorLogs', userId).map(shape)
+        errors: byUser('errorLogs', userId).map(shape),
+        otherPapers: byUser('otherPapers', userId).map(shape)
       };
     },
     async ownedSubject(userId, subjectId) {
@@ -137,7 +138,7 @@ function makeStore() {
     },
     async removeSubject(userId, subjectId) {
       data.subjects.delete(subjectId);
-      for (const table of ['pastPapers', 'studyLogs', 'sbaTasks', 'errorLogs']) {
+      for (const table of ['pastPapers', 'otherPapers', 'studyLogs', 'sbaTasks', 'errorLogs']) {
         for (const [k, v] of data[table]) if (v.userId === userId && v.subjectId === subjectId) data[table].delete(k);
       }
     },
@@ -192,6 +193,23 @@ function makeStore() {
     },
     async removeError(userId, errorId) {
       if (findOwned('errorLogs', userId, errorId)) data.errorLogs.delete(errorId);
+    },
+    async addOtherPaper(userId, input) {
+      const doc = { _id: id('o'), userId, createdAt: new Date(), ...input };
+      data.otherPapers.set(doc._id, doc);
+      return doc;
+    },
+    async ownedOtherPaper(userId, paperId) {
+      return findOwned('otherPapers', userId, paperId);
+    },
+    async patchOtherPaper(userId, paperId, patch) {
+      const doc = findOwned('otherPapers', userId, paperId);
+      if (!doc) return false;
+      Object.assign(doc, patch);
+      return true;
+    },
+    async removeOtherPaper(userId, paperId) {
+      if (findOwned('otherPapers', userId, paperId)) data.otherPapers.delete(paperId);
     }
   };
 }
@@ -234,7 +252,7 @@ async function test(name, fn) {
 
 /* ---------------------------------- tests --------------------------------- */
 
-console.log('\nDesk No. 4 — API isolation tests\n');
+console.log('\nStarShooter — API isolation tests\n');
 
 let alice;
 let bob;
@@ -524,6 +542,195 @@ await test('CSD school prediction is stored instead of a target level', async ()
   assert.equal(updated.attainment, 'attained');
   assert.equal(updated.targetLevel, null, 'CSD never keeps a level target');
   assert.equal(updated.predictedLevel, null);
+});
+
+await test('other papers are logged apart from the DSE matrix', async () => {
+  const me = await callJson('/me', { cookie: alice });
+  const chem = me.data.subjects.find((s) => s.code === 'CHEM') || me.data.subjects.find((s) => s.code === 'MATH');
+
+  const res = await callJson('/other-papers', {
+    method: 'POST',
+    cookie: alice,
+    body: {
+      subjectId: chem.id,
+      title: 'St Paul\'s mock 2026',
+      source: 'other-school',
+      takenOn: '2026-01-12',
+      score: 63,
+      maxScore: 90,
+      estimatedLevel: 5,
+      notes: 'Section B timing'
+    }
+  });
+  assert.equal(res.status, 201);
+  const saved = res.data.otherPapers[0];
+  assert.equal(saved.title, "St Paul's mock 2026");
+  assert.equal(saved.source, 'other-school');
+  assert.equal(saved.percentage, 70);
+  assert.equal(saved.estimatedLevel, 5);
+  assert.equal(res.data.papers.length, me.data.papers.length, 'the DSE matrix is untouched');
+});
+
+await test('other papers validate their name, date and score', async () => {
+  const me = await callJson('/me', { cookie: alice });
+  const subj = me.data.subjects[0];
+
+  const noTitle = await callJson('/other-papers', {
+    method: 'POST', cookie: alice, body: { subjectId: subj.id, takenOn: '2026-02-01' }
+  });
+  assert.equal(noTitle.status, 400);
+
+  const noDate = await callJson('/other-papers', {
+    method: 'POST', cookie: alice, body: { subjectId: subj.id, title: 'Mock' }
+  });
+  assert.equal(noDate.status, 400);
+
+  const badScore = await callJson('/other-papers', {
+    method: 'POST', cookie: alice, body: { subjectId: subj.id, title: 'Mock', takenOn: '2026-02-01', maxScore: 0 }
+  });
+  assert.equal(badScore.status, 400);
+});
+
+await test('another student cannot read, edit or delete your other papers', async () => {
+  const aliceMe = await callJson('/me', { cookie: alice });
+  const id = aliceMe.data.otherPapers[0].id;
+
+  const bobMe = await callJson('/me', { cookie: bob });
+  assert.equal(bobMe.data.otherPapers.length, 0, 'nothing leaks across accounts');
+
+  const patch = await callJson(`/other-papers/${id}`, {
+    method: 'PATCH', cookie: bob, body: { title: 'Hijacked' }
+  });
+  assert.equal(patch.status, 404);
+
+  await callJson(`/other-papers/${id}`, { method: 'DELETE', cookie: bob });
+  const still = await callJson('/me', { cookie: alice });
+  assert.equal(still.data.otherPapers.length, 1, 'record survived the foreign delete');
+});
+
+await test('a foreign subject cannot be used for another paper', async () => {
+  const aliceMe = await callJson('/me', { cookie: alice });
+  const aliceSubj = aliceMe.data.subjects[0].id;
+  const res = await callJson('/other-papers', {
+    method: 'POST',
+    cookie: bob,
+    body: { subjectId: aliceSubj, title: 'Sneaky mock', takenOn: '2026-03-01' }
+  });
+  assert.equal(res.status, 403);
+});
+
+await test('other papers for CSD use attainment, not levels', async () => {
+  const me = await callJson('/me', { cookie: alice });
+  const csd = me.data.subjects.find((s) => s.code === 'CSD');
+  const res = await callJson('/other-papers', {
+    method: 'POST',
+    cookie: alice,
+    body: { subjectId: csd.id, title: 'CSD school mock', takenOn: '2026-02-20', attainment: 'attained', estimatedLevel: 4 }
+  });
+  assert.equal(res.status, 201);
+  const saved = res.data.otherPapers.find((o) => o.title === 'CSD school mock');
+  assert.equal(saved.attainment, 'attained');
+  assert.equal(saved.estimatedLevel, null, 'CSD never stores a level');
+});
+
+await test('deleting a subject removes its other papers too', async () => {
+  const me = await callJson('/me', { cookie: alice });
+  const csd = me.data.subjects.find((s) => s.code === 'CSD');
+  await callJson(`/subjects/${csd.id}`, { method: 'DELETE', cookie: alice });
+  const after = await callJson('/me', { cookie: alice });
+  assert.equal(after.data.otherPapers.filter((o) => o.subjectId === csd.id).length, 0);
+});
+
+await test('Chinese has no Paper 3 from 2024, but old sittings still do', async () => {
+  const me = await callJson('/me', { cookie: alice });
+  const chin = me.data.subjects.find((s) => s.code === 'CHIN');
+
+  const newP3 = await callJson('/papers', {
+    method: 'POST', cookie: alice, body: { subjectId: chin.id, year: 2025, paper: 'P3' }
+  });
+  assert.equal(newP3.status, 400, 'P3 was abolished from 2024');
+  assert.match(newP3.data.error, /Paper 3|2024/i);
+
+  const oldP3 = await callJson('/papers', {
+    method: 'POST', cookie: alice, body: { subjectId: chin.id, year: 2019, paper: 'P3', score: 70, maxScore: 100 }
+  });
+  assert.equal(oldP3.status, 201, 'a 2019 sitting did have Paper 3');
+
+  const newP2 = await callJson('/papers', {
+    method: 'POST', cookie: alice, body: { subjectId: chin.id, year: 2025, paper: 'P2', score: 68, maxScore: 100 }
+  });
+  assert.equal(newP2.status, 201, 'P1 and P2 remain');
+});
+
+await test('the Paper 3 rule is Chinese-only', async () => {
+  const me = await callJson('/me', { cookie: alice });
+  const eng = me.data.subjects.find((s) => s.code === 'ENG');
+  const res = await callJson('/papers', {
+    method: 'POST', cookie: alice, body: { subjectId: eng.id, year: 2025, paper: 'P3', score: 60, maxScore: 100 }
+  });
+  assert.equal(res.status, 201, 'English still has Paper 3');
+});
+
+await test('grade bands save, stay per-subject, and are validated', async () => {
+  const me = await callJson('/me', { cookie: alice });
+  const math = me.data.subjects.find((s) => s.code === 'MATH');
+  const eng = me.data.subjects.find((s) => s.code === 'ENG');
+
+  const saved = await callJson(`/subjects/${math.id}`, {
+    method: 'PATCH',
+    cookie: alice,
+    body: { gradeBands: { 2: 30, 3: 40, 4: 52, 5: 63, 6: 75, 7: 86 } }
+  });
+  assert.equal(saved.status, 200, 'bands should save');
+  const savedMath = saved.data.subjects.find((s) => s.id === math.id);
+  assert.equal(savedMath.gradeBands['7'], 86);
+  assert.equal(savedMath.gradeBands['2'], 30);
+
+  const untouched = saved.data.subjects.find((s) => s.id === eng.id);
+  assert.equal(untouched.gradeBands ?? null, null, 'bands must not leak across subjects');
+
+  const inverted = await callJson(`/subjects/${math.id}`, {
+    method: 'PATCH',
+    cookie: alice,
+    body: { gradeBands: { 2: 60, 3: 40 } }
+  });
+  assert.equal(inverted.status, 400, 'bands that go backwards must be rejected');
+
+  const outOfRange = await callJson(`/subjects/${math.id}`, {
+    method: 'PATCH',
+    cookie: alice,
+    body: { gradeBands: { 4: 140 } }
+  });
+  assert.equal(outOfRange.status, 400, 'a band above 99% is not a percentage');
+
+  const cleared = await callJson(`/subjects/${math.id}`, {
+    method: 'PATCH',
+    cookie: alice,
+    body: { gradeBands: null }
+  });
+  assert.equal(cleared.status, 200);
+  assert.equal(cleared.data.subjects.find((s) => s.id === math.id).gradeBands, null, 'null clears back to defaults');
+});
+
+await test('CSD cannot carry grade bands', async () => {
+  // Earlier tests delete the seeded CSD subject, so make a fresh one and prove
+  // the rule directly instead of relying on suite order.
+  const added = await callJson('/subjects', {
+    method: 'POST',
+    cookie: alice,
+    body: { code: 'CSD', category: 'core' }
+  });
+  assert.equal(added.status, 201, 'CSD should be addable');
+  const csd = added.data.subjects.find((s) => s.code === 'CSD');
+  assert.ok(csd, 'CSD subject missing after add');
+
+  const res = await callJson(`/subjects/${csd.id}`, {
+    method: 'PATCH',
+    cookie: alice,
+    body: { gradeBands: { 2: 30, 3: 40, 4: 50, 5: 60, 6: 70, 7: 80 } }
+  });
+  assert.equal(res.status, 200);
+  assert.equal(res.data.subjects.find((s) => s.id === csd.id).gradeBands, null, 'CSD has attainment, not levels');
 });
 
 await test('deleting an account removes its records', async () => {

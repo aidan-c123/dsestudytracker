@@ -62,8 +62,9 @@ const core = (id, code, name) => ({
   code,
   name,
   category: 'core',
-  targetLevel: 4,
+  targetLevel: code === 'CSD' ? null : 4,
   predictedLevel: null,
+  attainment: null,
   examDate: null,
   sortOrder: 0
 });
@@ -87,7 +88,8 @@ const db = {
   papers: [],
   logs: [],
   tasks: [],
-  errors: []
+  errors: [],
+  otherPapers: []
 };
 
 const workspace = () => JSON.parse(JSON.stringify(db));
@@ -132,6 +134,19 @@ function serve(path, method, body) {
   if (path === 'logs' && method === 'POST') {
     db.logs.push({ id: `l${++seq}`, ...body });
     return [201, workspace()];
+  }
+  if (path === 'other-papers' && method === 'POST') {
+    const pctv = body.score !== null && body.maxScore ? Math.round((body.score / body.maxScore) * 1000) / 10 : null;
+    db.otherPapers.push({ id: `o${++seq}`, ...body, percentage: pctv });
+    return [201, workspace()];
+  }
+  if (path === 'other-papers' && method === 'PATCH') {
+    return [200, workspace()];
+  }
+  const otherDel = String(path).match(/^other-papers\/([\w-]+)$/);
+  if (otherDel && method === 'DELETE') {
+    db.otherPapers = db.otherPapers.filter((p) => p.id !== otherDel[1]);
+    return [200, workspace()];
   }
   return [404, { error: `no stub for ${method} ${path}` }];
 }
@@ -179,7 +194,7 @@ window.document.addEventListener('click', (e) => {
   events.push(el.dataset.act);
 });
 
-console.log('\nDesk No. 4 — end-to-end UI test\n');
+console.log('\nStarShooter — end-to-end UI test\n');
 
 await app.boot();
 await tick();
@@ -282,20 +297,15 @@ check('submitting the task saves it and closes the dialog', () => {
 
 /* --- CSD: attainment replaces levels everywhere --------------------------- */
 
-lib.state.data.subjects.push({
-  id: 's-csd',
-  code: 'CSD',
-  name: '公民與社會發展',
-  category: 'core',
-  targetLevel: null,
-  predictedLevel: null,
-  attainment: null,
-  examDate: null
+check('the seeded CSD subject carries no level target', () => {
+  const csd = lib.state.data.subjects.find((s) => s.code === 'CSD');
+  if (!csd) throw new Error('CSD missing from the seeded cores');
+  if (csd.targetLevel !== null) throw new Error('CSD should not have a level target');
 });
 
 app.navigate('papers');
 await tick();
-document.querySelector('[data-act="pick-subject"][data-id="s-csd"]').dispatchEvent(
+document.querySelector('[data-act="pick-subject"][data-id="s4"]').dispatchEvent(
   new window.MouseEvent('click', { bubbles: true })
 );
 await tick();
@@ -316,7 +326,7 @@ check('the CSD page shows attainment, not a target level', () => {
   void targetChips;
 });
 
-document.querySelector('[data-act="log-paper"][data-subject="s-csd"]').dispatchEvent(
+document.querySelector('[data-act="log-paper"][data-subject="s4"]').dispatchEvent(
   new window.MouseEvent('click', { bubbles: true })
 );
 await tick();
@@ -345,7 +355,7 @@ await tick();
 
 check('logging a CSD attempt saves attainment with no level', () => {
   if (modal()) throw new Error('dialog stayed open');
-  const saved = db.papers.find((p) => p.subjectId === 's-csd');
+  const saved = db.papers.find((p) => p.subjectId === 's4');
   if (!saved) throw new Error('paper was not saved');
   if (saved.attainment !== 'attained') throw new Error(`attainment is ${saved.attainment}`);
   if (saved.estimatedLevel !== null) throw new Error('a CSD log stored a level');
@@ -380,27 +390,275 @@ lib.closeModal();
 
 /* --- subject dialog: CSD swaps its grading fields ------------------------- */
 
+app.navigate('papers');
+await tick();
+document.querySelector('[data-act="pick-subject"][data-id="s4"]').dispatchEvent(
+  new window.MouseEvent('click', { bubbles: true })
+);
+await tick();
+document.querySelector('[data-act="edit-subject"][data-id="s4"]').dispatchEvent(
+  new window.MouseEvent('click', { bubbles: true })
+);
+await tick();
+
+check('editing CSD hides the level fields and offers attainment', () => {
+  const m = modal();
+  if (!m) throw new Error('no dialog');
+  if (!m.querySelector('#sj-level-fields').hidden) throw new Error('level fields should hide for CSD');
+  if (m.querySelector('#sj-attain-field').hidden) throw new Error('attainment field should show for CSD');
+  const values = [...m.querySelectorAll('#sj-attain option')].map((o) => o.value).filter(Boolean);
+  if (values.join(',') !== 'attained,unattained') throw new Error(`unexpected options: ${values}`);
+});
+
+lib.closeModal();
+
+// A levelled subject keeps the 1–5** fields.
+document.querySelector('[data-act="edit-subject"][data-id="s3"]').dispatchEvent(
+  new window.MouseEvent('click', { bubbles: true })
+);
+await tick();
+
+check('editing a levelled subject keeps the level fields', () => {
+  const m = modal();
+  if (!m) throw new Error('no dialog');
+  if (m.querySelector('#sj-level-fields').hidden) throw new Error('level fields should show for Mathematics');
+  if (!m.querySelector('#sj-attain-field').hidden) throw new Error('attainment field should hide for Mathematics');
+});
+
+lib.closeModal();
+
+// Adding an elective: the catalogue offers no CSD (it is already seeded), so
+// the level fields stay.
 app.navigate('settings');
 await tick();
 document.querySelector('[data-act="add-subject"]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
 await tick();
 
-check('the subject dialog hides level fields for CSD', () => {
+check('adding an elective shows level fields and never offers CSD', () => {
   const m = modal();
   if (!m) throw new Error('no dialog');
-  const code = m.querySelector('#sj-code');
-  code.value = 'CSD';
-  code.dispatchEvent(new window.Event('change', { bubbles: true }));
-  if (!m.querySelector('#sj-level-fields').hidden) throw new Error('level fields should hide for CSD');
-  if (m.querySelector('#sj-attain-field').hidden) throw new Error('attainment field should show for CSD');
-
-  code.value = 'BIOL';
-  code.dispatchEvent(new window.Event('change', { bubbles: true }));
-  if (m.querySelector('#sj-level-fields').hidden) throw new Error('level fields should return for Biology');
-  if (!m.querySelector('#sj-attain-field').hidden) throw new Error('attainment field should hide for Biology');
+  const codes = [...m.querySelectorAll('#sj-code option')].map((o) => o.value);
+  if (codes.includes('CSD')) throw new Error('CSD is already on the account and must not be offered again');
+  if (m.querySelector('#sj-level-fields').hidden) throw new Error('level fields should be visible for a new elective');
+  if (!m.querySelector('#sj-attain-field').hidden) throw new Error('attainment field should be hidden for a new elective');
 });
 
 lib.closeModal();
+
+/* --- Chinese: Paper 3 is gone from 2024 ---------------------------------- */
+
+app.navigate('papers');
+await tick();
+document.querySelector('[data-act="pick-subject"][data-id="s1"]').dispatchEvent(
+  new window.MouseEvent('click', { bubbles: true })
+);
+await tick();
+
+check('the Chinese matrix no longer has a Paper 3 column', () => {
+  const heads = [...window.document.querySelectorAll('.matrix thead th')].map((th) => th.textContent.trim());
+  if (!heads.includes('P1') || !heads.includes('P2')) throw new Error(`missing P1/P2: ${heads.join(',')}`);
+  if (heads.includes('P3')) throw new Error('Paper 3 was abolished in 2024 and should not be offered');
+});
+
+document.querySelector('[data-act="log-paper"][data-subject="s1"]').dispatchEvent(
+  new window.MouseEvent('click', { bubbles: true })
+);
+await tick();
+
+check('logging Chinese for 2026 offers only P1 and P2', () => {
+  const m = modal();
+  if (!m) throw new Error('no dialog');
+  const yearField = m.querySelector('#pf-year');
+  yearField.value = '2026';
+  yearField.dispatchEvent(new window.Event('change', { bubbles: true }));
+  const papers = [...m.querySelectorAll('#pf-paper option')].map((o) => o.value);
+  if (papers.join(',') !== 'P1,P2') throw new Error(`expected P1,P2 got ${papers.join(',')}`);
+});
+
+check('an old Chinese sitting can still be logged as Paper 3', () => {
+  const m = modal();
+  const yearField = m.querySelector('#pf-year');
+  yearField.value = '2019';
+  yearField.dispatchEvent(new window.Event('change', { bubbles: true }));
+  const papers = [...m.querySelectorAll('#pf-paper option')].map((o) => o.value);
+  if (!papers.includes('P3')) throw new Error(`pre-2024 should offer P3, got ${papers.join(',')}`);
+  if (!papers.includes('P4')) throw new Error('pre-2024 should offer P4');
+});
+
+lib.closeModal();
+
+/* --- Other papers -------------------------------------------------------- */
+
+document.querySelector('[data-act="other-paper"]').dispatchEvent(
+  new window.MouseEvent('click', { bubbles: true })
+);
+await tick();
+const dseCountBefore = db.papers.length;
+
+check('the Other paper dialog opens with every kind of paper', () => {
+  const m = modal();
+  if (!m) throw new Error('no dialog appeared');
+  if (!m.querySelector('#other-form')) throw new Error('form missing');
+  const kinds = [...m.querySelectorAll('#op-source option')].map((o) => o.value);
+  for (const k of ['school', 'other-school', 'textbook', 'practice', 'other-board', 'other']) {
+    if (!kinds.includes(k)) throw new Error(`missing source ${k}`);
+  }
+});
+
+modal().querySelector('#op-subject').value = 's3';
+modal().querySelector('#op-source').value = 'other-school';
+modal().querySelector('#op-title').value = "St Paul's mock 2026";
+modal().querySelector('#op-date').value = '2026-01-12';
+modal().querySelector('#op-score').value = '63';
+modal().querySelector('#op-max').value = '90';
+modal().querySelector('#other-form').dispatchEvent(
+  new window.Event('submit', { bubbles: true, cancelable: true })
+);
+await tick();
+await tick();
+
+check('logging another paper keeps it out of the DSE matrix', () => {
+  if (modal()) throw new Error('dialog stayed open');
+  const saved = db.otherPapers[0];
+  if (!saved) throw new Error('paper not saved');
+  if (saved.source !== 'other-school') throw new Error('source lost');
+  if (db.papers.length !== dseCountBefore) {
+    throw new Error(`the mock leaked into the DSE matrix (${dseCountBefore} → ${db.papers.length})`);
+  }
+});
+
+app.navigate('papers');
+await tick();
+document.querySelector('[data-act="pick-subject"][data-id="s3"]').dispatchEvent(
+  new window.MouseEvent('click', { bubbles: true })
+);
+await tick();
+
+check('the logged mock appears under Other papers', () => {
+  const text = window.document.body.textContent;
+  if (!text.includes("St Paul's mock 2026")) throw new Error('mock is not listed');
+  if (!text.includes('Other school mock')) throw new Error('its kind is not shown');
+  const cells = window.document.querySelectorAll('.matrix .cell:not(.f-empty)');
+  if (cells.length) throw new Error('the mock should not fill a matrix cell');
+});
+
+/* --- Paper presets ------------------------------------------------------- */
+
+app.navigate('focus');
+await tick();
+
+check('the Focus page offers searchable paper presets', () => {
+  const search = $('#preset-search');
+  if (!search) throw new Error('no preset search input');
+  const cards = $$('#preset-list .preset-paper');
+  if (cards.length < 6) throw new Error(`only ${cards.length} presets rendered`);
+  const text = $('#preset-list').textContent;
+  for (const want of ['Chinese', 'English', 'Mathematics', 'CSD']) {
+    if (!text.includes(want)) throw new Error(`missing ${want} preset`);
+  }
+});
+
+check('searching filters presets by paper and by length', () => {
+  const search = $('#preset-search');
+  search.value = 'chinese';
+  search.dispatchEvent(new window.Event('input', { bubbles: true }));
+  const chinese = $$('#preset-list .preset-paper');
+  if (!chinese.length) throw new Error('no Chinese presets after search');
+  if (chinese.some((c) => !/Chinese/.test(c.textContent))) {
+    throw new Error('search returned a non-Chinese paper');
+  }
+
+  search.value = 'maths 135';
+  search.dispatchEvent(new window.Event('input', { bubbles: true }));
+  const maths = $$('#preset-list .preset-paper');
+  if (maths.length !== 1) throw new Error(`expected one maths paper, got ${maths.length}`);
+  if (!/2h 15m/.test(maths[0].textContent)) throw new Error('maths P1 should be 2h 15m');
+});
+
+check('a search with no matches says so instead of showing nothing', () => {
+  const search = $('#preset-search');
+  search.value = 'zzzznothing';
+  search.dispatchEvent(new window.Event('input', { bubbles: true }));
+  const list = $('#preset-list');
+  if (!$('#preset-list .empty')) throw new Error('no empty state');
+  if (!/No paper matches/.test(list.textContent)) throw new Error('empty state is not explanatory');
+  search.value = '';
+  search.dispatchEvent(new window.Event('input', { bubbles: true }));
+});
+
+check('choosing a preset loads its exact length and tags the subject', () => {
+  const list = $('#preset-list');
+  const chineseP2 = [...list.querySelectorAll('.preset-paper')].find(
+    (b) => b.dataset.label === 'Chinese P2 Writing'
+  );
+  if (!chineseP2) throw new Error('Chinese P2 preset missing');
+  chineseP2.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  return;
+});
+
+await tick();
+
+check('the dial now shows the paper length, not 25:00', () => {
+  const dial = $('[data-timer-time]');
+  if (dial.textContent !== '2:15:00') throw new Error(`dial shows ${dial.textContent}, expected 2:15:00`);
+});
+
+check('the preset tagged the Chinese subject for logging', () => {
+  const select = $('#timer-subject');
+  if (select.value !== 's1') throw new Error(`subject tag is ${select.value}, expected s1 (Chinese)`);
+});
+
+/* --- Brand and logo ------------------------------------------------------ */
+
+check('the platform is named StarShooter everywhere in the shell', () => {
+  const text = window.document.body.textContent;
+  if (!/StarShooter/.test(text)) throw new Error('brand name missing from the shell');
+  if (/Desk No\. 4/.test(text)) throw new Error('old brand name still present');
+  if (!/StarShooter — HKDSE Study Desk/.test(window.document.title)) {
+    throw new Error(`title is "${window.document.title}"`);
+  }
+});
+
+check('the logo is a real vector file used by the page and the tab', () => {
+  const icon = window.document.querySelector('link[rel="icon"]');
+  if (!icon) throw new Error('no favicon link');
+  if (!/logo\.svg/.test(icon.getAttribute('href'))) throw new Error('favicon is not the SVG logo');
+  if (!/image\/svg\+xml/.test(icon.getAttribute('type') || '')) throw new Error('favicon type is not SVG');
+  const marks = $$('.brand-mark');
+  if (!marks.length) throw new Error('no brand mark rendered');
+  if (marks.some((m) => m.tagName !== 'IMG' || !/logo\.svg/.test(m.getAttribute('src')))) {
+    throw new Error('brand mark is not the SVG logo');
+  }
+});
+
+/* --- Grade bands --------------------------------------------------------- */
+
+check('grade bands start from the shipped defaults', () => {
+  const bands = lib.bandsFor({ code: 'MATH' });
+  if (bands[7] !== lib.DEFAULT_BANDS[7]) throw new Error('defaults not applied');
+  if (!(bands[7] > bands[5] && bands[5] > bands[3])) throw new Error('bands are not ascending');
+});
+
+check('a subject’s own bands change the level it predicts', () => {
+  const easy = { code: 'MATH', gradeBands: { 2: 20, 3: 30, 4: 40, 5: 50, 6: 60, 7: 70 } };
+  const hard = { code: 'MATH', gradeBands: { 2: 50, 3: 60, 4: 70, 5: 80, 6: 90, 7: 95 } };
+  if (lib.levelFromPercentage(75, easy) !== 7) throw new Error('easy bands should give 5** at 75%');
+  if (lib.levelFromPercentage(75, hard) !== 4) throw new Error('hard bands should give 4 at 75%');
+  if (lib.levelFromPercentage(10, easy) !== 1) throw new Error('below every band is Level 1');
+});
+
+check('inverted bands are repaired rather than trusted', () => {
+  const broken = { code: 'MATH', gradeBands: { 2: 90, 3: 20, 4: 30, 5: 40, 6: 50, 7: 60 } };
+  const bands = lib.bandsFor(broken);
+  const order = [2, 3, 4, 5, 6, 7].map((l) => bands[l]);
+  if (order.some((v, i) => i && v <= order[i - 1])) throw new Error(`bands not monotonic: ${order.join(',')}`);
+});
+
+check('CSD still has no bands, because it has no levels', () => {
+  const csd = db.subjects.find((s) => s.code === 'CSD');
+  if (!lib.usesAttainment(csd)) throw new Error('CSD should use attainment');
+  if (lib.subjectPrediction(csd).level !== null) throw new Error('CSD should not predict a level');
+});
 
 /* --- Redirect to sign-in kept clean -------------------------------------- */
 

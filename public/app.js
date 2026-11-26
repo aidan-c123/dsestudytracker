@@ -38,9 +38,9 @@ function shellHTML() {
     <div class="shell">
       <aside class="rail">
         <div class="brand">
-          <div class="brand-mark">4</div>
+          <img class="brand-mark" src="/logo.svg" alt="" width="36" height="36" />
           <div>
-            <div class="brand-name">Desk No. 4</div>
+            <div class="brand-name">StarShooter</div>
             <div class="brand-sub">HKDSE study desk</div>
           </div>
         </div>
@@ -71,9 +71,9 @@ function shellHTML() {
       <div style="min-width:0">
         <div class="mobile-head">
           <div class="brand">
-            <div class="brand-mark">4</div>
+            <img class="brand-mark" src="/logo.svg" alt="" width="30" height="30" />
             <div>
-              <div class="brand-name">Desk No. 4</div>
+              <div class="brand-name">StarShooter</div>
               <div class="brand-sub">HKDSE</div>
             </div>
           </div>
@@ -137,6 +137,10 @@ export function renderView() {
   host.innerHTML = (VIEWS[state.view] || renderDesk)();
   syncNav();
   bindViewExtras(host);
+  // A paper preset sets the subject before the view is rebuilt, so the select
+  // has to be reseeded or the tag would silently fall back to "No subject".
+  const timerSelect = host.querySelector('[data-timer-subject]');
+  if (timerSelect && state.timerSubject) timerSelect.value = state.timerSubject;
   paintCountdown();
   paintTimer();
 }

@@ -28,8 +28,23 @@ export function renderDesk() {
       return (da ? da.getTime() : 9e15) - (db ? db.getTime() : 9e15);
     });
 
-  const recentPapers = [...state.data.papers]
-    .sort((a, b) => (a.attemptedAt < b.attemptedAt ? 1 : -1))
+  // Both kinds of paper, newest first, so a recent mock is not buried under
+  // older DSE attempts.
+  const recentPapers = [
+    ...state.data.papers.map((p) => ({
+      ...p,
+      kindLabel: `${p.year} ${p.paper}`,
+      sortKey: String(p.attemptedAt || '').slice(0, 10),
+      isOther: false
+    })),
+    ...(state.data.otherPapers || []).map((p) => ({
+      ...p,
+      kindLabel: p.title,
+      sortKey: String(p.takenOn || ''),
+      isOther: true
+    }))
+  ]
+    .sort((a, b) => (a.sortKey < b.sortKey ? 1 : a.sortKey > b.sortKey ? -1 : 0))
     .slice(0, 5);
 
   const hour = new Date().getHours();
@@ -250,7 +265,7 @@ export function renderDesk() {
                       const s = subjectById(p.subjectId);
                       return `<tr>
                         <td><b>${esc(s?.code || '—')}</b> <span class="muted">${esc(s?.name || '')}</span></td>
-                        <td class="num">${esc(p.year)} ${esc(p.paper)}</td>
+                        <td class="num">${esc(p.kindLabel)}${p.isOther ? ' <span class="chip chip-ghost">other</span>' : ''}</td>
                         <td class="num">${Number.isFinite(p.percentage) ? pct(p.percentage) : '—'}</td>
                         <td>${usesAttainment(s) ? attainmentChip(p.attainment) : lvlChip(p.estimatedLevel)}</td>
                       </tr>`;

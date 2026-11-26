@@ -19,16 +19,17 @@ export function renderAuth(message = notice) {
     <div class="auth">
       <aside class="auth-art">
         <div class="brand">
-          <div class="brand-mark">4</div>
+          <img class="brand-mark" src="/logo.svg" alt="" width="36" height="36" />
           <div>
-            <div class="brand-name">Desk No. 4</div>
+            <div class="brand-name">StarShooter</div>
             <div class="brand-sub">HKDSE study desk</div>
           </div>
         </div>
-        <h1>Four years, on one honest page.</h1>        <p>For DSE candidates tired of six spreadsheets. Papers, focus blocks, SBA deadlines and the countdown — in one place, private to you.</p>
+        <h1>Aim high. Land the shot.</h1>
+        <p>For DSE candidates tired of six spreadsheets. Papers, focus blocks, SBA deadlines and the countdown — in one place, private to you.</p>
         <ul>
           <li>Fifteen years of papers, split by paper</li>
-          <li>A focus timer that logs itself</li>
+          <li>Timer presets for every real paper</li>
           <li>Target vs. predicted, no flattery</li>
           <li>Countdown to 6 April 2027</li>
         </ul>
@@ -224,7 +225,7 @@ export function showRecoveryCode(code, firstTime) {
       <div class="row" style="gap:8px">
         <button class="btn btn-quiet btn-sm" data-copy="${esc(code)}" type="button">Copy code</button>
         <a class="btn btn-quiet btn-sm" href="data:text/plain;charset=utf-8,${encodeURIComponent(
-          `Desk No. 4 recovery code\n${code}\nKeep this private.\n`
+          `StarShooter recovery code\n${code}\nKeep this private.\n`
         )}" download="dse-recovery-code.txt">Download .txt</a>
       </div>`,
     footer: `<button class="btn btn-primary" data-close type="button">I've saved it</button>`

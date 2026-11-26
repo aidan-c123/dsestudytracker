@@ -5,12 +5,14 @@
 import {
   $, $$, esc, icon, state, api, refresh, hooks, toast, openModal, closeModal,
   applyTheme, submitting, errorText, subjectById, subjectPrediction, papersOf, papersFor,
-  levelFromPercentage, lvlLabel, lvlChip, fmtDate, toLocalInput, daysUntil,
-  usesAttainment, CSD_CODE, CSD_FIRST_YEAR, yearsFor
+  papersForYear, matrixPapersFor, OTHER_SOURCES, BAND_LEVELS, bandsFor, levelFromPercentage, pct,
+  lvlLabel, lvlChip, fmtDate, toLocalInput, daysUntil, subjectDsePct,
+  usesAttainment, CSD_CODE, CSD_FIRST_YEAR, yearsFor, otherSourceLabel
 } from './lib.js';
 import {
   startTimer, pauseTimer, resumeTimer, stopTimer, timerState, paintTimer, BREAK_MINUTES
 } from './timer.js';
+import { presetButtonsHTML } from './views/focus.js';
 
 /* --------------------------------- subjects -------------------------------- */
 
@@ -55,6 +57,18 @@ const HANDLERS = {
   },
 
   'quick-log': () => openPaperModal(),
+
+  'other-paper': () => openOtherPaperModal(),
+  'edit-other-paper': (el) => {
+    const record = (state.data.otherPapers || []).find((p) => p.id === el.dataset.id);
+    if (record) openOtherPaperModal(record);
+  },
+  'delete-other-paper': async (el) => {
+    if (!confirm('Delete this paper?')) return;
+    const data = await api(`/other-papers/${el.dataset.id}`, { method: 'DELETE' });
+    await refresh(data);
+    toast('Paper removed.');
+  },
 
   'pick-subject': (el) => {
     state.paperSubjectId = el.dataset.id;
@@ -154,12 +168,38 @@ const HANDLERS = {
   'preset': (el) => {
     const minutes = Number(el.dataset.preset);
     state.timerPresetMinutes = minutes;
+    state.presetKey = '';
     const t = timerState();
     if (t.running) {
       startFocus(minutes);
       return;
     }
     paintTimer();
+  },
+  // A paper preset loads the exact exam length and tags the matching subject,
+  // so the time logged at the end is attributable without extra clicks.
+  'paper-preset': (el) => {
+    const minutes = Number(el.dataset.minutes);
+    const label = el.dataset.label || '';
+    if (!Number.isFinite(minutes) || minutes <= 0) return;
+    state.timerPresetMinutes = minutes;
+    state.presetKey = label;
+
+    const code = String(el.dataset.code || '').toUpperCase();
+    const match = state.data.subjects.find((s) => String(s.code || '').toUpperCase() === code);
+    if (match) {
+      state.timerSubject = match.id;
+      const select = $('#timer-subject');
+      if (select) select.value = match.id;
+    }
+
+    if (timerState().running) {
+      startFocus(minutes, label);
+      return;
+    }
+    // Re-render so the dial shows the real paper length before starting.
+    hooks.renderView?.();
+    toast(`${label} — ${minutes} minutes loaded.`);
   },
   'break': () => {
     startTimer({ minutes: BREAK_MINUTES, mode: 'break' });
@@ -210,7 +250,7 @@ const HANDLERS = {
     const url = URL.createObjectURL(new Blob([payload], { type: 'application/json' }));
     const a = document.createElement('a');
     a.href = url;
-    a.download = `desk-no-4-${new Date().toISOString().slice(0, 10)}.json`;
+    a.download = `starshooter-${new Date().toISOString().slice(0, 10)}.json`;
     a.click();
     URL.revokeObjectURL(url);
     toast('Export downloaded.');
@@ -250,10 +290,10 @@ export function bindActions(event, el) {
 
 /* ------------------------------ focus helpers ------------------------------ */
 
-function startFocus(minutes) {
+function startFocus(minutes, label = '') {
   const select = $('#timer-subject');
   const subjectId = select?.value || state.timerSubject || null;
-  startTimer({ minutes, mode: 'focus', subjectId });
+  startTimer({ minutes, mode: 'focus', subjectId, label });
 }
 
 async function logManual({ minutes, subjectId = null, label = '', completedAt }) {
@@ -335,11 +375,11 @@ function openPaperModal({ subjectId, year, paper, paper: paperRecord } = {}) {
   }
   const existing = paperRecord || null;
   const initialSubject = existing?.subjectId || subjectId || state.paperSubjectId || subjects[0].id;
-  const initialYear = existing?.year || Number(year) || 2024;
+  const initialYear = existing?.year || Number(year) || 2026;
   const initialPaper = existing?.paper || paper || 'P1';
   const startSubject = subjectById(initialSubject);
   const years = yearsFor(startSubject);
-  const list = papersFor(startSubject);
+  const list = papersForYear(startSubject, initialYear);
   const csd = usesAttainment(startSubject);
 
   openModal({
@@ -437,29 +477,30 @@ function openPaperModal({ subjectId, year, paper, paper: paperRecord } = {}) {
         pctTouched = true;
         const p = Number(pctField.value);
         if (!levelField.value && !attainField.value && Number.isFinite(p) && pctField.value !== '') {
-          if (usesAttainment(subjectById(subjectField.value))) {
+          const subject = subjectById(subjectField.value);
+          if (usesAttainment(subject)) {
             attainField.value = p >= 50 ? 'attained' : 'unattained';
           } else {
-            levelField.value = String(levelFromPercentage(p));
+            levelField.value = String(levelFromPercentage(p, subject));
           }
         }
       });
 
-      // A different subject can change both the papers and the grading scheme,
-      // so rebuild the paper list and swap level ↔ attainment in place.
-      const syncSubject = () => {
+      // A different subject or year can change which papers existed, so the
+      // paper list is rebuilt rather than assumed.
+      const syncPapers = () => {
         const subject = subjectById(subjectField.value);
         const csd = usesAttainment(subject);
-        const papers = papersFor(subject);
+        const year = Number(yearField.value);
+        const allowed = papersForYear(subject, year);
+        const keep = paperField.value;
 
-        paperField.innerHTML = papers.map((p) => `<option value="${p}">${p}</option>`).join('');
-        if (paperField.value !== initialPaper) paperField.value = papers[0];
+        paperField.innerHTML = allowed.map((p) => `<option value="${p}">${p}</option>`).join('');
+        paperField.value = allowed.includes(keep) ? keep : allowed[0];
 
         const earliest = csd ? CSD_FIRST_YEAR : 2012;
         const currentYear = Number(yearField.value);
-        yearField.innerHTML = yearsFor(subject)
-          .map((y) => `<option value="${y}">${y}</option>`)
-          .join('');
+        yearField.innerHTML = yearsFor(subject).map((y) => `<option value="${y}">${y}</option>`).join('');
         yearField.value = String(currentYear >= earliest ? currentYear : 2026);
 
         levelField.hidden = csd;
@@ -468,11 +509,14 @@ function openPaperModal({ subjectId, year, paper, paper: paperRecord } = {}) {
         levelField.disabled = csd;
         gradeHint.textContent = csd
           ? 'CSD is reported as Attained / Not attained — there are no levels.'
-          : 'Best guess from this sitting, if you have one.';
+          : subject?.code === 'CHIN' && Number(yearField.value) < 2024
+            ? 'Before 2024 Chinese also had Paper 3 (Listening) and Paper 4 (Speaking).'
+            : '';
       };
 
-      subjectField.addEventListener('change', syncSubject);
-      syncSubject();
+      subjectField.addEventListener('change', syncPapers);
+      yearField.addEventListener('change', syncPapers);
+      syncPapers();
 
       paperField.addEventListener('change', (e) => {
         const p = e.target.value;
@@ -516,6 +560,160 @@ function openPaperModal({ subjectId, year, paper, paper: paperRecord } = {}) {
           state.paperSubjectId = body.subjectId;
           await refresh(data);
           toast(existing ? 'Attempt updated.' : 'Attempt logged.');
+        } catch (err) {
+          restore();
+          toast(errorText(err), 'error');
+        }
+      });
+    }
+  });
+}
+
+/* ---------------------------- other paper modal ---------------------------- */
+
+function openOtherPaperModal(record = null) {
+  const subjects = state.data.subjects;
+  if (!subjects.length) {
+    toast('Add a subject first.', 'error');
+    return;
+  }
+  const existing = record || null;
+  const initialSubject = existing?.subjectId || state.paperSubjectId || subjects[0].id;
+  const startSubject = subjectById(initialSubject);
+  const csd = usesAttainment(startSubject);
+  const today = toLocalInput(new Date()).slice(0, 10);
+
+  openModal({
+    title: existing ? 'Edit paper' : 'Log a paper that isn\'t a DSE past paper',
+    subtitle: existing
+      ? `${esc(existing.title)}`
+      : 'Mocks, other schools, textbooks and practice papers. Kept out of the DSE matrix.',
+    body: `
+      <form id="other-form" class="form-grid">
+        <div class="form-grid two">
+          <div class="field">
+            <label for="op-subject">Subject</label>
+            <select id="op-subject">
+              ${subjects
+                .map((s) => `<option value="${s.id}" ${s.id === initialSubject ? 'selected' : ''}>${esc(s.name)}</option>`)
+                .join('')}
+            </select>
+          </div>
+          <div class="field">
+            <label for="op-source">Kind of paper</label>
+            <select id="op-source">
+              ${Object.entries(OTHER_SOURCES)
+                .map(
+                  ([key, label]) =>
+                    `<option value="${key}" ${(existing?.source || 'school') === key ? 'selected' : ''}>${label}</option>`
+                )
+                .join('')}
+            </select>
+          </div>
+        </div>
+        <div class="field">
+          <label for="op-title">Name</label>
+          <input id="op-title" maxlength="120" required value="${esc(existing?.title || '')}"
+            placeholder="St Paul's mock 2026 · Paper 1" />
+        </div>
+        <div class="form-grid two">
+          <div class="field">
+            <label for="op-date">Date sat</label>
+            <input id="op-date" type="date" value="${existing?.takenOn || today}" required />
+          </div>
+          <div class="field" id="op-grade-wrap">
+            <label for="op-level">Estimated DSE level</label>
+            <select id="op-level" ${csd ? 'hidden' : ''}>
+              <option value="">Not set</option>
+              ${[7, 6, 5, 4, 3, 2, 1]
+                .map((l) => `<option value="${l}" ${existing?.estimatedLevel === l ? 'selected' : ''}>${lvlLabel(l)}</option>`)
+                .join('')}
+            </select>
+            <select id="op-attain" ${csd ? '' : 'hidden'}>
+              <option value="">Not set</option>
+              <option value="attained" ${existing?.attainment === 'attained' ? 'selected' : ''}>Attained</option>
+              <option value="unattained" ${existing?.attainment === 'unattained' ? 'selected' : ''}>Not attained</option>
+            </select>
+            <span class="hint" id="op-grade-hint">${csd ? 'CSD is reported as Attained / Not attained.' : ''}</span>
+          </div>
+        </div>
+        <div class="form-grid two">
+          <div class="field">
+            <label for="op-score">Raw score</label>
+            <input id="op-score" type="number" min="0" step="0.5" value="${existing?.score ?? ''}" placeholder="63" />
+          </div>
+          <div class="field">
+            <label for="op-max">Out of</label>
+            <input id="op-max" type="number" min="0" step="0.5" value="${existing?.maxScore ?? ''}" placeholder="90" />
+          </div>
+        </div>
+        <div class="field">
+          <label for="op-notes">Notes</label>
+          <textarea id="op-notes" maxlength="2000" placeholder="Harsher marking than DSE; Section B ran long.">${esc(existing?.notes || '')}</textarea>
+        </div>
+      </form>`,
+    footer: `
+      ${existing ? `<button class="btn btn-danger grow" data-delete type="button">${icon('trash')} Delete</button>` : ''}
+      <button class="btn btn-quiet" data-close type="button">Cancel</button>
+      <button class="btn btn-primary" type="submit" form="other-form">${existing ? 'Save changes' : 'Log paper'}</button>`,
+    onMount: (dialog) => {
+      const subjectField = dialog.querySelector('#op-subject');
+      const levelField = dialog.querySelector('#op-level');
+      const attainField = dialog.querySelector('#op-attain');
+      const gradeHint = dialog.querySelector('#op-grade-hint');
+      const score = dialog.querySelector('#op-score');
+      const max = dialog.querySelector('#op-max');
+
+      // The score-to-percentage preview is computed by the server; here we only
+      // keep the level out of the way when the subject is CSD.
+      const syncGrade = () => {
+        const isCsd = usesAttainment(subjectById(subjectField.value));
+        levelField.hidden = isCsd;
+        levelField.disabled = isCsd;
+        attainField.hidden = !isCsd;
+        attainField.disabled = !isCsd;
+        gradeHint.textContent = isCsd ? 'CSD is reported as Attained / Not attained.' : '';
+      };
+      subjectField.addEventListener('change', syncGrade);
+      syncGrade();
+
+      if (existing) {
+        dialog.querySelector('[data-delete]').addEventListener('click', async () => {
+          if (!confirm('Delete this paper?')) return;
+          try {
+            const data = await api(`/other-papers/${existing.id}`, { method: 'DELETE' });
+            closeModal();
+            await refresh(data);
+            toast('Paper removed.');
+          } catch (err) {
+            toast(errorText(err), 'error');
+          }
+        });
+      }
+
+      dialog.querySelector('#other-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const btn = dialog.querySelector('button[form="other-form"]');
+        const restore = submitting(btn, 'Saving…');
+        const body = {
+          subjectId: subjectField.value,
+          source: dialog.querySelector('#op-source').value,
+          title: dialog.querySelector('#op-title').value,
+          takenOn: dialog.querySelector('#op-date').value,
+          score: score.value === '' ? null : Number(score.value),
+          maxScore: max.value === '' ? null : Number(max.value),
+          estimatedLevel: levelField.value ? Number(levelField.value) : null,
+          attainment: attainField.value || null,
+          notes: dialog.querySelector('#op-notes').value
+        };
+        try {
+          const data = existing
+            ? await api(`/other-papers/${existing.id}`, { method: 'PATCH', body })
+            : await api('/other-papers', { method: 'POST', body });
+          closeModal();
+          state.paperSubjectId = body.subjectId;
+          await refresh(data);
+          toast(existing ? 'Paper updated.' : 'Paper logged.');
         } catch (err) {
           restore();
           toast(errorText(err), 'error');
@@ -681,6 +879,7 @@ function openTaskModal(task = null) {
 function openSubjectModal(subject = null) {
   const existingCodes = new Set(state.data.subjects.map((s) => s.code));
   const options = CATALOG.filter((c) => !existingCodes.has(c.code) || subject?.code === c.code);
+  const bands = bandsFor(subject);
   openModal({
     title: subject ? `Edit ${subject.name}` : 'Add a subject',
     subtitle: subject ? 'Targets feed the ledger and the paper matrix.' : 'Electives, M1 or M2.',
@@ -733,6 +932,18 @@ function openSubjectModal(subject = null) {
           <label for="sj-exam">Exam date <span class="muted">(optional — for per-subject countdown)</span></label>
           <input id="sj-exam" type="date" value="${subject?.examDate || ''}" />
         </div>
+        <div class="field" id="sj-bands-field">
+          <label>Grade bands <span class="muted">(% of marks needed)</span></label>
+          <div class="band-grid" id="sj-bands">
+            ${BAND_LEVELS.map(
+              (l) => `<label class="band-cell">
+                <span>${lvlLabel(l)}</span>
+                <input type="number" min="1" max="99" step="1" data-band="${l}" value="${bands[l]}" aria-label="${lvlLabel(l)} from percentage" />
+              </label>`
+            ).join('')}
+          </div>
+          <span class="hint" id="sj-band-hint"></span>
+        </div>
       </form>`,
     footer: `<button class="btn btn-quiet" data-close type="button">Cancel</button>
       <button class="btn btn-primary" type="submit" form="subject-form">${subject ? 'Save' : 'Add subject'}</button>`,
@@ -740,12 +951,42 @@ function openSubjectModal(subject = null) {
       const codeSelect = dialog.querySelector('#sj-code');
       const levelFields = dialog.querySelector('#sj-level-fields');
       const attainField = dialog.querySelector('#sj-attain-field');
+      const bandsField = dialog.querySelector('#sj-bands-field');
+      const bandHint = dialog.querySelector('#sj-band-hint');
+      const bandInputs = [...dialog.querySelectorAll('[data-band]')];
+
+      const readBands = () => {
+        const out = {};
+        for (const input of bandInputs) {
+          const v = Math.round(Number(input.value));
+          if (Number.isFinite(v) && v > 0 && v < 100) out[input.dataset.band] = v;
+        }
+        return out;
+      };
+
+      // The hint is the honest part: it says what the current bands would call
+      // the student's own average, so a bad calibration is visible immediately.
+      const paintBandHint = () => {
+        if (!bandHint) return;
+        const target = subject || { code: codeSelect?.value, gradeBands: readBands() };
+        const average = subjectDsePct(subject?.id);
+        if (average === null) {
+          bandHint.textContent =
+            'Starting bands. HKEAA does not publish official cut-offs, so tune these to your school’s conversions.';
+          return;
+        }
+        const level = levelFromPercentage(average, { ...target, gradeBands: readBands() });
+        bandHint.textContent = `Your DSE average is ${pct(average)} → ${lvlLabel(level)} with these bands.`;
+      };
+
+      bandInputs.forEach((input) => input.addEventListener('input', paintBandHint));
 
       // CSD has no levels at all, so the grading fields swap rather than adapt.
       const syncGradeFields = (code) => {
         const csd = String(code || '').toUpperCase() === CSD_CODE;
         levelFields.hidden = csd;
         attainField.hidden = !csd;
+        if (bandsField) bandsField.hidden = csd;
       };
 
       if (codeSelect) {
@@ -756,6 +997,7 @@ function openSubjectModal(subject = null) {
         });
       }
       syncGradeFields(subject ? subject.code : codeSelect?.value);
+      paintBandHint();
 
       dialog.querySelector('#subject-form').addEventListener('submit', async (e) => {
         e.preventDefault();
@@ -773,7 +1015,8 @@ function openSubjectModal(subject = null) {
                 : dialog.querySelector('#sj-predicted').value
                   ? Number(dialog.querySelector('#sj-predicted').value)
                   : null,
-              attainment: csd ? dialog.querySelector('#sj-attain').value || null : null
+              attainment: csd ? dialog.querySelector('#sj-attain').value || null : null,
+              gradeBands: csd ? null : readBands()
             };
             const data = await api(`/subjects/${subject.id}`, { method: 'PATCH', body });
             closeModal();
@@ -798,7 +1041,8 @@ function openSubjectModal(subject = null) {
                   ? Number(dialog.querySelector('#sj-predicted').value)
                   : null,
               attainment: csd ? dialog.querySelector('#sj-attain').value || null : null,
-              examDate: dialog.querySelector('#sj-exam').value || null
+              examDate: dialog.querySelector('#sj-exam').value || null,
+              gradeBands: csd ? null : readBands()
             };
             const data = await api('/subjects', { method: 'POST', body });
             closeModal();
@@ -821,6 +1065,16 @@ export function bindViewExtras(host) {
   if (timerSelect) {
     timerSelect.addEventListener('change', () => {
       state.timerSubject = timerSelect.value;
+    });
+  }
+
+  // Live search over paper presets: filter in place so the input keeps focus.
+  const presetSearch = host.querySelector('[data-preset-search]');
+  const presetList = host.querySelector('#preset-list');
+  if (presetSearch && presetList) {
+    presetSearch.addEventListener('input', () => {
+      state.presetQuery = presetSearch.value;
+      presetList.innerHTML = presetButtonsHTML(state.presetQuery);
     });
   }
 

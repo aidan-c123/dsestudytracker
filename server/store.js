@@ -161,7 +161,7 @@ export async function rotateRecovery(userId) {
 
 export async function deleteAccount(userId) {
   const db = await getDb();
-  for (const name of ['pastPapers', 'studyLogs', 'sbaTasks', 'errorLogs', 'subjects', 'sessions']) {
+  for (const name of ['pastPapers', 'otherPapers', 'studyLogs', 'sbaTasks', 'errorLogs', 'subjects', 'sessions']) {
     await db.collection(name).deleteMany({ userId });
   }
   await db.collection('users').deleteOne({ _id: oid(userId) });
@@ -173,12 +173,13 @@ export async function loadWorkspace(user) {
   const db = await getDb();
   const userId = String(user._id);
 
-  const [subjects, papers, logs, tasks, errors] = await Promise.all([
+  const [subjects, papers, logs, tasks, errors, otherPapers] = await Promise.all([
     db.collection('subjects').find({ userId }).sort({ sortOrder: 1, createdAt: 1 }).toArray(),
     db.collection('pastPapers').find({ userId }).sort({ year: -1, paper: 1 }).toArray(),
     db.collection('studyLogs').find({ userId }).sort({ completedAt: -1 }).limit(3000).toArray(),
     db.collection('sbaTasks').find({ userId }).sort({ dueDate: 1, createdAt: 1 }).toArray(),
-    db.collection('errorLogs').find({ userId }).sort({ createdAt: -1 }).limit(500).toArray()
+    db.collection('errorLogs').find({ userId }).sort({ createdAt: -1 }).limit(500).toArray(),
+    db.collection('otherPapers').find({ userId }).sort({ takenOn: -1 }).limit(1000).toArray()
   ]);
 
   return {
@@ -198,7 +199,12 @@ export async function loadWorkspace(user) {
       completedAt: iso(l.completedAt)
     })),
     tasks: tasks.map((t) => ({ ...shape(t), createdAt: iso(t.createdAt) })),
-    errors: errors.map((e) => ({ ...shape(e), createdAt: iso(e.createdAt) }))
+    errors: errors.map((e) => ({ ...shape(e), createdAt: iso(e.createdAt) })),
+    otherPapers: otherPapers.map((o) => ({
+      ...shape(o),
+      takenOn: o.takenOn || null,
+      createdAt: iso(o.createdAt)
+    }))
   };
 }
 
@@ -211,7 +217,7 @@ export async function ownedSubject(userId, subjectId) {
   return db.collection('subjects').findOne({ _id, userId });
 }
 
-export async function addSubject(userId, { code, name, category, targetLevel, predictedLevel, attainment, examDate }) {
+export async function addSubject(userId, { code, name, category, targetLevel, predictedLevel, attainment, examDate, gradeBands }) {
   const db = await getDb();
   const last = await db
     .collection('subjects')
@@ -229,6 +235,7 @@ export async function addSubject(userId, { code, name, category, targetLevel, pr
     predictedLevel: predictedLevel ?? null,
     attainment: attainment ?? null,
     examDate: examDate ?? null,
+    gradeBands: gradeBands ?? null,
     sortOrder: (last?.sortOrder ?? 0) + 1,
     createdAt: new Date()
   };
@@ -249,6 +256,7 @@ export async function removeSubject(userId, subjectId) {
   if (!_id) return;
   await Promise.all([
     db.collection('pastPapers').deleteMany({ userId, subjectId }),
+    db.collection('otherPapers').deleteMany({ userId, subjectId }),
     db.collection('studyLogs').deleteMany({ userId, subjectId }),
     db.collection('sbaTasks').deleteMany({ userId, subjectId }),
     db.collection('errorLogs').deleteMany({ userId, subjectId }),
@@ -303,6 +311,40 @@ export async function removePaper(userId, paperId) {
   const _id = oid(paperId);
   if (!_id) return;
   await db.collection('pastPapers').deleteOne({ _id, userId });
+}
+
+/* ------------------------------ other papers ------------------------------
+ * Mocks, textbook papers and practice papers. Stored apart from pastPapers so
+ * the DSE matrix stays an honest record of real past papers.
+ */
+
+export async function addOtherPaper(userId, input) {
+  const db = await getDb();
+  const doc = { _id: new ObjectId(), userId, ...input, createdAt: new Date() };
+  await db.collection('otherPapers').insertOne(doc);
+  return doc;
+}
+
+export async function ownedOtherPaper(userId, paperId) {
+  const db = await getDb();
+  const _id = oid(paperId);
+  if (!_id) return null;
+  return db.collection('otherPapers').findOne({ _id, userId });
+}
+
+export async function patchOtherPaper(userId, paperId, patch) {
+  const db = await getDb();
+  const _id = oid(paperId);
+  if (!_id) return false;
+  const result = await db.collection('otherPapers').updateOne({ _id, userId }, { $set: patch });
+  return result.matchedCount === 1;
+}
+
+export async function removeOtherPaper(userId, paperId) {
+  const db = await getDb();
+  const _id = oid(paperId);
+  if (!_id) return;
+  await db.collection('otherPapers').deleteOne({ _id, userId });
 }
 
 /* -------------------------------- study logs ------------------------------ */

@@ -1,5 +1,5 @@
 /* ============================================================
-   Desk No. 4 — HKDSE study desk
+   StarShooter — HKDSE study desk
    Warm paper light theme / ink dark theme
    ============================================================ */
 
@@ -101,9 +101,7 @@ a { color: var(--accent); }
 }
 .boot-mark {
   width: 52px; height: 52px; border-radius: 14px;
-  background: var(--accent); color: var(--accent-ink);
-  font-family: var(--serif); font-size: 1.7rem;
-  display: grid; place-items: center;
+  display: block;
 }
 .boot-text { color: var(--muted); font-size: 0.9rem; }
 
@@ -128,10 +126,8 @@ a { color: var(--accent); }
 .brand { display: flex; gap: 11px; align-items: center; padding: 0 6px; }
 .brand-mark {
   width: 36px; height: 36px; border-radius: 10px;
-  background: var(--accent); color: var(--accent-ink);
-  display: grid; place-items: center;
-  font-family: var(--serif); font-size: 1.15rem; line-height: 1;
-  box-shadow: inset 0 -8px 14px rgba(0, 0, 0, 0.12);
+  display: block; flex: none;
+  box-shadow: 0 1px 2px rgba(35, 30, 18, 0.18);
 }
 .brand-name { font-family: var(--serif); font-size: 1rem; font-weight: 600; line-height: 1.15; }
 .brand-sub { font-size: 0.68rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
@@ -246,6 +242,10 @@ a { color: var(--accent); }
 .btn[disabled] { opacity: 0.55; cursor: not-allowed; }
 
 /* ---------------------------------- forms --------------------------------- */
+
+/* The `hidden` attribute must win over display rules below (e.g. .field sets
+   display:grid), or hiding a field silently fails. */
+[hidden] { display: none !important; }
 
 .field { display: grid; gap: 6px; }
 .field > label, .field-label { font-size: 0.76rem; font-weight: 600; color: var(--ink-soft); letter-spacing: 0.02em; }
@@ -503,6 +503,49 @@ table.plain td.num { font-variant-numeric: tabular-nums; font-family: var(--mono
   cursor: pointer; font-family: var(--sans);
 }
 .preset[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+
+.preset-picker { display: grid; gap: 8px; border-top: 1px solid var(--line); padding-top: 14px; }
+.preset-picker .field { max-width: none; }
+.preset-list {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(158px, 1fr));
+  gap: 6px; max-height: 208px; overflow-y: auto; padding: 2px;
+  scrollbar-width: thin;
+}
+.preset-paper {
+  display: grid; grid-template-columns: 1fr auto; grid-template-areas: "title mins" "meta mins";
+  gap: 1px 8px; text-align: left; align-items: center;
+  border-radius: 10px; padding: 7px 10px; border-color: var(--line);
+  background: var(--paper-2);
+}
+.preset-paper:hover { border-color: var(--line-strong); }
+.preset-paper .preset-title { grid-area: title; font-size: 0.78rem; font-weight: 700; color: var(--ink); }
+.preset-paper .preset-meta {
+  grid-area: meta; font-size: 0.68rem; font-weight: 500; color: var(--muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.preset-paper .preset-mins {
+  grid-area: mins; font-family: var(--mono); font-size: 0.7rem; color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.preset-paper[aria-pressed="true"] {
+  border-color: var(--accent); background: var(--accent-soft); color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.preset-paper[aria-pressed="true"] .preset-title,
+.preset-paper[aria-pressed="true"] .preset-mins { color: var(--accent); }
+
+/* Grade bands: six compact cells, readable on a phone */
+.band-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 5px; }
+.band-cell { display: grid; gap: 3px; justify-items: center; }
+.band-cell span { font-size: 0.66rem; font-weight: 700; color: var(--muted); letter-spacing: 0.02em; }
+.band-cell input {
+  width: 100%; text-align: center; padding: 6px 2px; font-family: var(--mono);
+  font-size: 0.78rem; border-radius: 8px;
+}
+@media (max-width: 460px) {
+  .band-grid { grid-template-columns: repeat(3, 1fr); }
+  .preset-list { grid-template-columns: 1fr; }
+}
 .timer-actions { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
 
 .bars { display: flex; align-items: flex-end; gap: 6px; height: 116px; padding-top: 8px; }

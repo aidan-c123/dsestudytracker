@@ -1,7 +1,7 @@
 import {
   text, validEmail, validPassword, level, numOrNull, dateOrNull, percentageOf, catalogEntry,
   LIMITS, sessionCookie, clearCookie, verifyPassword as verifyHash,
-  attainment, usesAttainment, CSD_CODE, CSD_FIRST_YEAR
+  attainment, usesAttainment, CSD_CODE, CSD_FIRST_YEAR, otherSource, paperRetired, gradeBands
 } from './util.js';
 
 /* --------------------------------- responses ------------------------------ */
@@ -191,6 +191,10 @@ export async function handleApi(request, path, injectedStore) {
       if (body.attainment !== undefined && body.attainment !== null && body.attainment !== '' && !marked) {
         return fail('Choose Attained or Not attained.');
       }
+      const bands = gradeBands(body.gradeBands);
+      if (body.gradeBands != null && !bands) {
+        return fail('Grade bands must be percentages from 1 to 99, climbing with each level.');
+      }
 
       await store.addSubject(userId, {
         code,
@@ -199,7 +203,8 @@ export async function handleApi(request, path, injectedStore) {
         targetLevel: csd ? null : level(body.targetLevel) ?? 4,
         predictedLevel: csd ? null : level(body.predictedLevel),
         attainment: csd ? marked : null,
-        examDate: dateOrNull(body.examDate)
+        examDate: dateOrNull(body.examDate),
+        gradeBands: csd ? null : bands
       });
       return json(await store.loadWorkspace(auth.user), 201);
     }
@@ -231,6 +236,13 @@ export async function handleApi(request, path, injectedStore) {
         patch.attainment = marked;
       }
       if (body.examDate !== undefined) patch.examDate = dateOrNull(body.examDate);
+      if (body.gradeBands !== undefined) {
+        const bands = gradeBands(body.gradeBands);
+        if (body.gradeBands !== null && !bands) {
+          return fail('Grade bands must be percentages from 1 to 99, climbing with each level.');
+        }
+        patch.gradeBands = csd ? null : bands;
+      }
       if (body.sortOrder !== undefined) patch.sortOrder = Math.round(Number(body.sortOrder) || 0);
       if (!Object.keys(patch).length) return fail('Nothing to update.');
 
@@ -254,6 +266,11 @@ export async function handleApi(request, path, injectedStore) {
       const paper = text(body.paper, 40);
       if (!paper) return fail('Choose a paper.');
       if (csd && paper !== 'P1') return fail('CSD has a single paper: Paper 1.');
+      if (!csd && paperRetired(subject.code, year, paper)) {
+        return fail(
+          `Chinese has no ${paper} from 2024 onwards — Papers 3 and 4 were abolished in the 2024 reform. Use the year you sat it, or log it as an Other paper.`
+        );
+      }
 
       const score = numOrNull(body.score);
       const maxScore = numOrNull(body.maxScore);
@@ -287,8 +304,7 @@ export async function handleApi(request, path, injectedStore) {
       const marked = attainment(body.attainment);
       if (body.attainment !== undefined && body.attainment !== null && body.attainment !== '' && !marked) {
         return fail('Choose Attained or Not attained.');
-      }
-      const ok = await store.patchPaper(userId, paperMatch[1], {
+      }      const ok = await store.patchPaper(userId, paperMatch[1], {
         score,
         maxScore,
         percentage: percentageOf(score, maxScore, body.percentage),
@@ -302,6 +318,102 @@ export async function handleApi(request, path, injectedStore) {
 
     if (paperMatch && method === 'DELETE') {
       await store.removePaper(userId, paperMatch[1]);
+      return json(await store.loadWorkspace(auth.user));
+    }
+
+    /* --------------------------- other papers ------------------------------
+     * School mocks, other schools' papers, textbooks and practice papers.
+     * Kept out of the DSE matrix so the matrix stays a truthful record of
+     * actual past papers, but still counted in the average and prediction.
+     */
+
+    if (path === '/other-papers' && method === 'POST') {
+      const subject = await store.ownedSubject(userId, text(body.subjectId, 40));
+      if (!subject) return fail('Pick one of your own subjects.', 403);
+
+      const title = text(body.title, 120);
+      if (!title) return fail('Give the paper a name.');
+
+      const takenOn = dateOrNull(body.takenOn);
+      if (!takenOn) return fail('Pick the date you sat it.');
+
+      const score = numOrNull(body.score);
+      const maxScore = numOrNull(body.maxScore);
+      if (score !== null && score < 0) return fail('Scores cannot be negative.');
+      if (maxScore !== null && maxScore <= 0) return fail('Total marks must be greater than zero.');
+
+      const csd = usesAttainment(subject);
+      const marked = attainment(body.attainment);
+      if (!csd && body.attainment !== undefined && body.attainment !== null && body.attainment !== '' && !marked) {
+        return fail('Choose Attained or Not attained.');
+      }
+
+      await store.addOtherPaper(userId, {
+        subjectId: text(body.subjectId, 40),
+        title,
+        source: otherSource(body.source),
+        takenOn,
+        score,
+        maxScore,
+        percentage: percentageOf(score, maxScore, body.percentage),
+        estimatedLevel: csd ? null : level(body.estimatedLevel),
+        attainment: csd ? marked : null,
+        notes: text(body.notes, LIMITS.text)
+      });
+      return json(await store.loadWorkspace(auth.user), 201);
+    }
+
+    const otherMatch = path.match(/^\/other-papers\/([\w-]+)$/);
+    if (otherMatch && (method === 'PATCH' || method === 'DELETE')) {
+      const owned = await store.ownedOtherPaper(userId, otherMatch[1]);
+      if (!owned) return fail('Paper not found.', 404);
+
+      if (method === 'DELETE') {
+        await store.removeOtherPaper(userId, otherMatch[1]);
+        return json(await store.loadWorkspace(auth.user));
+      }
+
+      const patch = {};
+      if (body.title !== undefined) {
+        const title = text(body.title, 120);
+        if (!title) return fail('Title cannot be empty.');
+        patch.title = title;
+      }
+      if (body.source !== undefined) patch.source = otherSource(body.source);
+      if (body.takenOn !== undefined) {
+        const takenOn = dateOrNull(body.takenOn);
+        if (!takenOn) return fail('Pick the date you sat it.');
+        patch.takenOn = takenOn;
+      }
+      if (body.score !== undefined) {
+        const score = numOrNull(body.score);
+        if (score !== null && score < 0) return fail('Scores cannot be negative.');
+        patch.score = score;
+      }
+      if (body.maxScore !== undefined) {
+        const maxScore = numOrNull(body.maxScore);
+        if (maxScore !== null && maxScore <= 0) return fail('Total marks must be greater than zero.');
+        patch.maxScore = maxScore;
+      }
+      if (body.notes !== undefined) patch.notes = text(body.notes, LIMITS.text);
+      if (body.estimatedLevel !== undefined) {
+        patch.estimatedLevel = usesAttainment(owned) ? null : level(body.estimatedLevel);
+      }
+      if (body.attainment !== undefined) {
+        const marked = attainment(body.attainment);
+        if (body.attainment !== null && body.attainment !== '' && !marked) {
+          return fail('Choose Attained or Not attained.');
+        }
+        patch.attainment = usesAttainment(owned) ? marked : null;
+      }
+      if (body.score !== undefined || body.maxScore !== undefined || body.percentage !== undefined) {
+        const score = body.score !== undefined ? patch.score : owned.score;
+        const maxScore = body.maxScore !== undefined ? patch.maxScore : owned.maxScore;
+        patch.percentage = percentageOf(score, maxScore, body.percentage);
+      }
+      if (!Object.keys(patch).length) return fail('Nothing to update.');
+
+      await store.patchOtherPaper(userId, otherMatch[1], patch);
       return json(await store.loadWorkspace(auth.user));
     }
 

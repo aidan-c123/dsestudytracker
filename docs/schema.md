@@ -57,27 +57,58 @@ request body. Two extra checks matter:
 | `code` | string | `CHIN`, `ENG`, `MATH`, `CSD`, `M1`, `M2`, `BIOL`, … |
 | `name` | string | display name, may be Chinese |
 | `category` | string | `core` \| `elective` \| `extended` |
-| `targetLevel` | int | 1–7 (7 renders as `5**`) |
+| `targetLevel` | int \| null | 1–7 (7 renders as `5**`); null for CSD |
 | `predictedLevel` | int \| null | school estimate; when null the UI derives one from papers |
+| `attainment` | string \| null | `attained` \| `unattained`; CSD only |
 | `examDate` | string \| null | per-subject paper date |
 | `sortOrder` | int | keeps the four cores first |
+
+CSD is reported by HKEAA as *Attained* / *Unattained* only, so it carries no
+level fields. Its `targetLevel` and `predictedLevel` are always null.
 
 ### `pastPapers`
 
 | Field | Type | Notes |
 | --- | --- | --- |
 | `userId`, `subjectId` | string | owner + subject |
-| `year` | int | 2012–2035 |
-| `paper` | string | `P1`–`P4` or `SBA` |
+| `year` | int | 2012–2035; CSD starts at 2024 |
+| `paper` | string | `P1`–`P4` or `SBA`; CSD is `P1` only |
 | `score`, `maxScore` | number \| null | optional raw marks |
 | `percentage` | number \| null | derived from marks, or typed directly |
-| `estimatedLevel` | int \| null | 1–7 |
+| `estimatedLevel` | int \| null | 1–7; always null for CSD |
+| `attainment` | string \| null | `attained` \| `unattained`; CSD only |
 | `notes` | string | max 2000 chars |
 | `attemptedAt` | date | refreshed on every save |
+
+The paper set is year-dependent, because the syllabus changed:
+
+| Subject | Papers | Note |
+| --- | --- | --- |
+| Chinese | `P1`, `P2` | `P3` and `P4` existed until 2023 and are still accepted for those years |
+| English | `P1`–`P4` | |
+| Mathematics, M1, M2 | `P1`, `P2` / `P1` | |
+| CSD | `P1` | from 2024 |
 
 A unique index on `(userId, subjectId, year, paper)` is what makes the matrix
 idempotent: logging the same cell twice updates the existing attempt instead of
 creating a duplicate row.
+
+### `otherPapers`
+
+Papers that are not DSE past papers, kept in their own collection so the matrix
+stays an honest record of real past papers. They still count towards the
+subject's average and predicted level.
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `userId`, `subjectId` | string | owner + subject |
+| `title` | string | e.g. `St Paul's mock 2026` |
+| `source` | string | `school` \| `other-school` \| `textbook` \| `practice` \| `other-board` \| `other` |
+| `takenOn` | string | date sat, `YYYY-MM-DD` |
+| `score`, `maxScore`, `percentage` | number \| null | as above |
+| `estimatedLevel` | int \| null | null for CSD |
+| `attainment` | string \| null | CSD only |
+| `notes` | string | |
 
 ### `studyLogs`
 
@@ -122,6 +153,8 @@ sessions     { userId: 1 }
 subjects     { userId: 1, sortOrder: 1 }
 pastPapers   { userId: 1, subjectId: 1, year: 1, paper: 1 } unique
 pastPapers   { userId: 1, attemptedAt: -1 }
+otherPapers  { userId: 1, takenOn: -1 }
+otherPapers  { userId: 1, subjectId: 1 }
 studyLogs    { userId: 1, completedAt: -1 }
 sbaTasks     { userId: 1, dueDate: 1 }
 errorLogs    { userId: 1, createdAt: -1 }

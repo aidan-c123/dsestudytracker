@@ -3,9 +3,9 @@
    ============================================================ */
 
 import {
-  esc, icon, state, topbar, pct, lvlChip, lvlLabel, papersFor, yearsFor, YEARS, subjectById,
-  papersOf, subjectPrediction, subjectAttainment, subjectPct, fmtDate,
-  usesAttainment, attainmentChip, attainmentLabel, CSD_FIRST_YEAR
+  esc, icon, state, topbar, pct, lvlChip, lvlLabel, papersFor, matrixPapersFor, yearsFor, YEARS, subjectById,
+  papersOf, otherPapersOf, subjectPrediction, subjectAttainment, subjectPct, subjectDsePct, fmtDate,
+  usesAttainment, attainmentChip, attainmentLabel, CSD_FIRST_YEAR, OTHER_SOURCES, otherSourceLabel
 } from '../lib.js';
 
 export function renderPapers() {
@@ -19,10 +19,14 @@ export function renderPapers() {
   state.paperSubjectId = subject.id;
 
   const csd = usesAttainment(subject);
-  const papers = papersFor(subject);
   const years = yearsFor(subject);
   const logs = papersOf(subject.id);
+  const otherLogs = otherPapersOf(subject.id);
+  // Columns keep any paper already logged, so a pre-2024 Chinese Paper 3 stays
+  // visible even though the reform retired it.
+  const papers = matrixPapersFor(subject, logs);
   const byCell = new Map(logs.map((p) => [`${p.year}-${p.paper}`, p]));
+  const dseAvg = subjectDsePct(subject.id);
   const avg = subjectPct(subject.id);
   const best = logs.reduce((a, p) => Math.max(a, p.estimatedLevel || 0), 0);
   const pred = subjectPrediction(subject);
@@ -36,13 +40,15 @@ export function renderPapers() {
       'Past paper matrix',
       `Papers · ${years[years.length - 1]}–${years[0]}`,
       `<button class="btn btn-quiet" data-act="add-subject">${icon('plus')}<span>Subject</span></button>
+       <button class="btn btn-quiet" data-act="other-paper" data-subject="${subject.id}">${icon('plus')}<span>Other paper</span></button>
        <button class="btn btn-primary" data-act="log-paper" data-subject="${subject.id}">${icon('plus')}<span>Log attempt</span></button>`
     )}
 
     <div class="stat-row">
-      <div class="stat"><div class="k">Attempts logged</div><div class="v">${logs.length} <small>/ ${years.length * papers.length}</small></div></div>
+      <div class="stat"><div class="k">DSE papers logged</div><div class="v">${logs.length} <small>/ ${years.length * papers.length}</small></div></div>
       <div class="stat"><div class="k">Matrix filled</div><div class="v">${completion}%</div></div>
-      <div class="stat"><div class="k">Average</div><div class="v">${avg === null ? '—' : pct(avg)}</div></div>
+      <div class="stat"><div class="k">Other papers</div><div class="v">${otherLogs.length}</div></div>
+      <div class="stat"><div class="k">Average <small>${otherLogs.length ? 'all papers' : 'DSE'}</small></div><div class="v">${avg === null ? '—' : pct(avg)}</div></div>
       <div class="stat"><div class="k">${csd ? 'Attainment' : 'Predicted'}</div><div class="v">${
         csd
           ? attainPred.value
@@ -145,6 +151,48 @@ export function renderPapers() {
           csd ? 'Cell shows A (attained) or NA (not attained), otherwise percentage.' : 'Cell shows DSE level when set, otherwise percentage.'
         }</span>
       </div>
+    </section>
+
+    <section class="card" style="margin-top:16px">
+      <div class="card-head">
+        <div>
+          <h2>Other papers</h2>
+          <div class="card-note">Mocks, other schools, textbooks and practice papers. They count towards the average, but stay out of the DSE matrix.</div>
+        </div>
+        <span class="spacer"></span>
+        <button class="btn btn-quiet btn-sm" data-act="other-paper" data-subject="${subject.id}">${icon('plus')} Add paper</button>
+      </div>
+      ${
+        otherLogs.length
+          ? `<div class="table-wrap"><table class="plain">
+              <thead><tr><th>Paper</th><th>Kind</th><th>Sat</th><th>Score</th><th>%</th><th>${csd ? 'Result' : 'Level'}</th><th></th></tr></thead>
+              <tbody>
+                ${[...otherLogs]
+                  .sort((a, b) => String(b.takenOn).localeCompare(String(a.takenOn)))
+                  .map(
+                    (p) => `<tr>
+                      <td><b>${esc(p.title)}</b>${p.notes ? `<div class="card-note" style="margin-top:2px">${esc(p.notes)}</div>` : ''}</td>
+                      <td><span class="chip">${esc(otherSourceLabel(p.source))}</span></td>
+                      <td class="num">${fmtDate(p.takenOn)}</td>
+                      <td class="num">${p.score !== null && p.maxScore ? `${p.score}/${p.maxScore}` : '—'}</td>
+                      <td class="num">${Number.isFinite(p.percentage) ? pct(p.percentage) : '—'}</td>
+                      <td>${csd ? attainmentChip(p.attainment) : lvlChip(p.estimatedLevel)}</td>
+                      <td style="text-align:right;white-space:nowrap">
+                        <button class="icon-btn" data-act="edit-other-paper" data-id="${p.id}" aria-label="Edit ${esc(p.title)}">${icon('edit')}</button>
+                        <button class="icon-btn" data-act="delete-other-paper" data-id="${p.id}" aria-label="Delete ${esc(p.title)}">${icon('trash')}</button>
+                      </td>
+                    </tr>`
+                  )
+                  .join('')}
+              </tbody>
+            </table></div>`
+          : `<div class="empty"><b>No other papers yet.</b>A school mock is often the best evidence you have before March — log one and it feeds your prediction.</div>`
+      }
+      ${
+        otherLogs.length
+          ? `<p class="card-note" style="margin-top:10px">DSE past papers average ${dseAvg === null ? '—' : pct(dseAvg)}; everything together averages ${avg === null ? '—' : pct(avg)}.</p>`
+          : ''
+      }
     </section>
 
     <div class="grid cols-2" style="margin-top:16px">

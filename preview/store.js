@@ -18,8 +18,17 @@ const data = {
   pastPapers: new Map(),
   studyLogs: new Map(),
   sbaTasks: new Map(),
-  errorLogs: new Map()
+  errorLogs: new Map(),
+  otherPapers: new Map()
 };
+
+/**
+ * The preview Worker is capped at roughly 10 ms of CPU per request, and PBKDF2
+ * at 210,000 rounds blows straight through that. Vercel's Node functions have
+ * no such cap, so production keeps the strong iteration count and only the
+ * in-chat preview uses a cheap one. Never used by the real app.
+ */
+const PREVIEW_ITERATIONS = 1000;
 
 let seq = 0;
 const id = (prefix) => `${prefix}${String(++seq).padStart(6, '0')}`;
@@ -43,8 +52,10 @@ const seedSubject = (userId, code, name, i) => {
     code,
     name,
     category: 'core',
-    targetLevel: 4,
+    targetLevel: code === 'CSD' ? null : 4,
     predictedLevel: null,
+    attainment: null,
+    gradeBands: null,
     examDate: null,
     sortOrder: i,
     createdAt: new Date()
@@ -65,8 +76,8 @@ const store = {
       name,
       email,
       emailLower: email.toLowerCase(),
-      pw: hashPassword(password),
-      recovery: hashPassword(recoveryCode),
+      pw: hashPassword(password, PREVIEW_ITERATIONS),
+      recovery: hashPassword(recoveryCode, PREVIEW_ITERATIONS),
       examDate: '2027-04-06',
       resultsDate: '2027-07-14',
       dailyGoalMinutes: 120,
@@ -110,20 +121,20 @@ const store = {
   },
 
   async setPassword(userId, password) {
-    data.users.get(userId).pw = hashPassword(password);
+    data.users.get(userId).pw = hashPassword(password, PREVIEW_ITERATIONS);
   },
 
   async rotateRecovery() {
     const next = `PREVIEW-${id('c').toUpperCase()}`;
     const user = [...data.users.values()].find((u) => u.recovery);
-    if (user) user.recovery = hashPassword(next);
+    if (user) user.recovery = hashPassword(next, PREVIEW_ITERATIONS);
     return next;
   },
 
   async deleteAccount(userId) {
     data.users.delete(userId);
     for (const [token, session] of data.sessions) if (session.userId === userId) data.sessions.delete(token);
-    for (const table of ['subjects', 'pastPapers', 'studyLogs', 'sbaTasks', 'errorLogs']) {
+    for (const table of ['subjects', 'pastPapers', 'studyLogs', 'sbaTasks', 'errorLogs', 'otherPapers']) {
       for (const [key, doc] of data[table]) if (doc.userId === userId) data[table].delete(key);
     }
   },
@@ -150,7 +161,8 @@ const store = {
       papers: sorted('pastPapers').map(shape),
       logs: sorted('studyLogs').map(shape),
       tasks: sorted('sbaTasks').map(shape),
-      errors: sorted('errorLogs').map(shape)
+      errors: sorted('errorLogs').map(shape),
+      otherPapers: sorted('otherPapers').map(shape)
     };
   },
 
@@ -171,7 +183,7 @@ const store = {
 
   async removeSubject(userId, subjectId) {
     data.subjects.delete(subjectId);
-    for (const table of ['pastPapers', 'studyLogs', 'sbaTasks', 'errorLogs']) {
+    for (const table of ['pastPapers', 'studyLogs', 'sbaTasks', 'errorLogs', 'otherPapers']) {
       for (const [key, doc] of data[table]) {
         if (doc.userId === userId && doc.subjectId === subjectId) data[table].delete(key);
       }
@@ -235,6 +247,27 @@ const store = {
     const doc = { _id: id('e'), userId, createdAt: new Date(), ...input };
     data.errorLogs.set(doc._id, doc);
     return doc;
+  },
+
+  async addOtherPaper(userId, input) {
+    const doc = { _id: id('o'), userId, ...input, createdAt: new Date() };
+    data.otherPapers.set(doc._id, doc);
+    return doc;
+  },
+
+  async ownedOtherPaper(userId, paperId) {
+    return findOwned('otherPapers', userId, paperId);
+  },
+
+  async patchOtherPaper(userId, paperId, patch) {
+    const doc = findOwned('otherPapers', userId, paperId);
+    if (!doc) return false;
+    Object.assign(doc, patch);
+    return true;
+  },
+
+  async removeOtherPaper(userId, paperId) {
+    if (findOwned('otherPapers', userId, paperId)) data.otherPapers.delete(paperId);
   },
 
   async removeError(userId, errorId) {

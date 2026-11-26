@@ -121,7 +121,14 @@ export function paintTimer() {
   const isBreak = t.mode === 'break';
   const paused = Boolean(timer?.paused);
 
-  $$('[data-timer-time]').forEach((el) => (el.textContent = `${mm}:${ss}`));
+  // Papers run longer than an hour, so the dial switches to h:mm:ss rather
+  // than showing a 135-minute countdown as "135:00".
+  const hh = Math.floor(t.remaining / 3600);
+  const clock = hh
+    ? `${hh}:${String(Math.floor((t.remaining % 3600) / 60)).padStart(2, '0')}:${ss}`
+    : `${mm}:${ss}`;
+
+  $$('[data-timer-time]').forEach((el) => (el.textContent = clock));
   $$('[data-timer-phase]').forEach((el) => {
     el.textContent = t.phase === 'idle' ? 'Ready' : paused ? 'Paused' : t.phase === 'done' ? 'Complete' : isBreak ? 'Break' : 'Focus';
   });
@@ -145,6 +152,10 @@ export function paintTimer() {
   $$('[data-preset]').forEach((el) => {
     const active = !timer && Number(el.dataset.preset) === (state.timerPresetMinutes || 25);
     el.setAttribute('aria-pressed', String(active));
+  });
+  // Paper presets stay visibly unselected once the clock is running.
+  $$('.preset-paper').forEach((el) => {
+    if (timer) el.setAttribute('aria-pressed', 'false');
   });
   $$('[data-timer-subject]').forEach((el) => {
     if (timer?.subjectId) el.value = timer.subjectId;

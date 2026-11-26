@@ -36,6 +36,8 @@ export async function ensureIndexes(db) {
         .collection('pastPapers')
         .createIndex({ userId: 1, subjectId: 1, year: 1, paper: 1 }, { unique: true });
       await db.collection('pastPapers').createIndex({ userId: 1, attemptedAt: -1 });
+      await db.collection('otherPapers').createIndex({ userId: 1, takenOn: -1 });
+      await db.collection('otherPapers').createIndex({ userId: 1, subjectId: 1 });
       await db.collection('studyLogs').createIndex({ userId: 1, completedAt: -1 });
       await db.collection('sbaTasks').createIndex({ userId: 1, dueDate: 1 });
       await db.collection('errorLogs').createIndex({ userId: 1, createdAt: -1 });

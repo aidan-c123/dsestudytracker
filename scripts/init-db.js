@@ -55,14 +55,28 @@ const validators = {
   subjects: {
     $jsonSchema: {
       bsonType: 'object',
-      required: ['userId', 'name', 'category', 'targetLevel'],
+      required: ['userId', 'name', 'category'],
       properties: {
         userId: { bsonType: 'string' },
         code: { bsonType: 'string', maxLength: 12 },
         name: { bsonType: 'string', maxLength: 60 },
         category: { enum: ['core', 'elective', 'extended'] },
-        targetLevel: { bsonType: 'int', minimum: 1, maximum: 7 },
+        // Null for CSD, which is graded Attained / Unattained.
+        targetLevel: level,
         predictedLevel: level,
+        attainment: { enum: ['attained', 'unattained', null] },
+        // Percentages at which Level 2…5** start, once the student tunes them.
+        gradeBands: {
+          bsonType: ['object', 'null'],
+          properties: {
+            2: { bsonType: ['int', 'null'], minimum: 1, maximum: 99 },
+            3: { bsonType: ['int', 'null'], minimum: 1, maximum: 99 },
+            4: { bsonType: ['int', 'null'], minimum: 1, maximum: 99 },
+            5: { bsonType: ['int', 'null'], minimum: 1, maximum: 99 },
+            6: { bsonType: ['int', 'null'], minimum: 1, maximum: 99 },
+            7: { bsonType: ['int', 'null'], minimum: 1, maximum: 99 }
+          }
+        },
         examDate: stringOrNull,
         sortOrder: { bsonType: 'int' }
       }
@@ -81,8 +95,31 @@ const validators = {
         maxScore: { bsonType: ['double', 'int', 'null'], minimum: 0 },
         percentage: { bsonType: ['double', 'int', 'null'], minimum: 0, maximum: 100 },
         estimatedLevel: level,
+        attainment: { enum: ['attained', 'unattained', null] },
         notes: { bsonType: 'string', maxLength: 2000 },
         attemptedAt: { bsonType: 'date' }
+      }
+    }
+  },
+  // Mocks, textbook papers and practice papers. Kept apart from pastPapers so
+  // the DSE matrix stays a record of real past papers only.
+  otherPapers: {
+    $jsonSchema: {
+      bsonType: 'object',
+      required: ['userId', 'subjectId', 'title', 'source', 'takenOn'],
+      properties: {
+        userId: { bsonType: 'string' },
+        subjectId: { bsonType: 'string' },
+        title: { bsonType: 'string', maxLength: 120 },
+        source: { enum: ['school', 'other-school', 'textbook', 'practice', 'other-board', 'other'] },
+        takenOn: stringOrNull,
+        score: { bsonType: ['double', 'int', 'null'], minimum: 0 },
+        maxScore: { bsonType: ['double', 'int', 'null'], minimum: 0 },
+        percentage: { bsonType: ['double', 'int', 'null'], minimum: 0, maximum: 100 },
+        estimatedLevel: level,
+        attainment: { enum: ['attained', 'unattained', null] },
+        notes: { bsonType: 'string', maxLength: 2000 },
+        createdAt: { bsonType: 'date' }
       }
     }
   },
@@ -142,6 +179,8 @@ const indexes = [
   ['subjects', { userId: 1, sortOrder: 1 }, {}],
   ['pastPapers', { userId: 1, subjectId: 1, year: 1, paper: 1 }, { unique: true }],
   ['pastPapers', { userId: 1, attemptedAt: -1 }, {}],
+  ['otherPapers', { userId: 1, takenOn: -1 }, {}],
+  ['otherPapers', { userId: 1, subjectId: 1 }, {}],
   ['studyLogs', { userId: 1, completedAt: -1 }, {}],
   ['sbaTasks', { userId: 1, dueDate: 1 }, {}],
   ['errorLogs', { userId: 1, createdAt: -1 }, {}]
