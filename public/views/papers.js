@@ -6,73 +6,100 @@ import {
   esc, icon, state, topbar, pct, lvlChip, lvlLabel, papersFor, matrixPapersFor, yearsFor, YEARS, subjectById,
   papersOf, otherPapersOf, subjectPrediction, subjectAttainment, subjectPct, subjectDsePct, fmtDate,
   usesAttainment, attainmentChip, attainmentLabel, CSD_FIRST_YEAR, OTHER_SOURCES, otherSourceLabel,
-  levelFromPercentage, nextBand
+  levelFromPercentage, nextBand, bandsFor, bandsOrigin
 } from '../lib.js';
-import { cutoffFor, paperCutoffFor, CUTOFF_SOURCE } from '../cutoffs.js';
+import { recentBoundaries, CUTOFF_SOURCE } from '../cutoffs.js';
 
-const GRADE_OF_LEVEL = { 7: '5**', 6: '5*', 5: '5', 4: '4', 3: '3', 2: '2' };
-const LEVEL_ORDER = [7, 6, 5, 4, 3, 2];
-
-/** The starred grades get their own row, because 5** and 5* are the ones a
- *  candidate is actually chasing and the averages alone hide how far apart
- *  they sit. Both a percentage and the raw mark are given: the percentage is
- *  comparable between papers, the raw mark is what a marker's total looks like. */
-function gradeRow(record, label) {
-  if (!record?.percent) return '';
-  const cells = LEVEL_ORDER.map((level) => {
-    const grade = GRADE_OF_LEVEL[level];
-    const p = Number(record.percent?.[grade]);
-    if (!Number.isFinite(p)) return '';
-    const raw = Number(record.cutoff?.[grade]);
-    const starred = level >= 6;
-    return `<div class="bd-cell${starred ? ' is-star' : ''}">
-      <span class="bd-grade">${lvlLabel(level)}</span>
-      <span class="bd-pct">${Math.round(p)}%</span>
-      ${Number.isFinite(raw) ? `<span class="bd-raw">${raw}/${record.fullMarks}</span>` : ''}
-    </div>`;
-  }).join('');
-  if (!cells) return '';
-  return `<div class="bd-block">
-    <div class="bd-label">${label}</div>
-    <div class="bd-grid">${cells}</div>
-  </div>`;
-}
+/** The four boundaries a candidate is actually working toward, in order. */
+const GOAL_GRADES = ['4', '5', '5*', '5**'];
 
 /**
- * The grade boundaries for this subject. The whole-subject row comes first;
- * then any per-paper boundaries the source publishes (Chinese, English), so a
- * Paper 1 score can be read against the boundary for that paper rather than
- * against the combined subject. Nothing here is an official promise — a
- * boundary is the last mark that earned the grade in one sitting.
+ * Recent grade boundaries, as one horizontal line of figures.
+ *
+ * The source publishes a boundary per sitting, and a single year can move
+ * several marks either way for reasons that have nothing to do with the
+ * candidate. So the figure shown is the mean of the last five sittings,
+ * taken as a percentage of that sitting's own full marks, which is the only
+ * way to compare years with different paper lengths.
+ *
+ * Only 4 to 5** appear. A student chasing a starred grade does not need the
+ * Level 2 boundary restated on a page they visit every week, and four numbers
+ * fit on one phone line where six do not.
  */
 function cutoffNote(subject) {
   if (!subject || usesAttainment(subject)) return '';
-  const record = cutoffFor(subject.code);
-  if (!record) return '';
+  const rows = boundaryRows(subject);
+  if (!rows) return '';
 
-  const perPaper = ['P1', 'P2', 'P3', 'P4']
-    .map((paper) => {
-      const p = paperCutoffFor(subject.code, paper);
-      // Only show papers the student can actually sit, and only if they have data.
-      if (!p?.percent || p.latestYear < 2020) return '';
-      return gradeRow(p, `${paper} only`);
-    })
+  const cells = GOAL_GRADES.filter((grade) => Number.isFinite(rows.values[grade]))
+    .map(
+      (grade) => `<li class="cut-item${grade.startsWith('5*') ? ' is-star' : ''}">
+        <span class="cut-lvl">${grade}</span>
+        <span class="cut-pct">${Math.round(rows.values[grade])}<i>%</i></span>
+      </li>`
+    )
     .join('');
+  if (!cells) return '';
+
+  const origin =
+    rows.source === 'dse00'
+      ? `<span class="muted">mean of ${rows.from}–${rows.to} · ${esc(subject.code)}</span>`
+      : rows.source === 'yours'
+        ? `<span class="muted">your own bands · ${esc(subject.code)}</span>`
+        : `<span class="muted">starting point · ${esc(subject.code)}</span>`;
+
+  const foot =
+    rows.source === 'dse00'
+      ? `From <a href="${CUTOFF_SOURCE.url}" target="_blank" rel="noopener noreferrer">${esc(CUTOFF_SOURCE.name)}</a>,
+         as a share of each year's full marks. A boundary is the last mark that earned the grade —
+         not a promise about yours.`
+      : rows.source === 'yours'
+        ? `The boundaries you set for this subject. Adjust them whenever a marked paper tells you more.`
+        : `No published DSE boundaries reach this subject, so these are neutral starting points. Adjust them once you have marked papers.`;
+
+  const adjust =
+    rows.source === 'dse00'
+      ? ''
+      : `<button class="cut-adjust" data-act="edit-subject" data-id="${esc(subject.id)}" type="button">Adjust</button>`;
 
   return `<div class="cut-note">
     <div class="cut-head">
       <b>Grade boundaries</b>
-      <span class="muted">${esc(record.recentFrom)}–${esc(record.recentTo)} mean · ${esc(subject.code)}</span>
-      <span class="spacer"></span>
-      <span class="cut-key"><i></i> % needed <span class="cut-key-raw">· raw / total</span></span>
+      ${origin}
+      ${adjust}
     </div>
-    ${gradeRow(record, 'Whole subject')}
-    ${perPaper ? `<div class="bd-extra">${perPaper}</div>` : ''}
-    <div class="cut-foot">
-      From <a href="${CUTOFF_SOURCE.url}" target="_blank" rel="noopener noreferrer">${esc(CUTOFF_SOURCE.name)}</a>.
-      A boundary is the last mark that earned the grade in that year, not a prediction for yours.
-    </div>
+    <ol class="cut-list">${cells}</ol>
+    <div class="cut-foot">${foot}</div>
   </div>`;
+}
+
+/**
+ * The four numbers under the matrix, for any subject that has levels.
+ *
+ * Every subject gets a row, so the strip does not appear and vanish as the
+ * student switches tabs. What changes is the provenance, which the heading
+ * states plainly:
+ *
+ *   dse00   — published boundaries, averaged over the last five sittings;
+ *   yours   — the student's own bands, which always win over the published ones;
+ *   default — neutral starting points, used only where the source publishes
+ *             nothing for a subject, so the strip never claims authority it
+ *             does not have.
+ *
+ * The values come from the same `bandsFor` the grader uses, so a figure on
+ * screen can never disagree with the level given to a paper.
+ */
+function boundaryRows(subject) {
+  const recent = recentBoundaries(subject.code);
+  const origin = bandsOrigin(subject);
+  if (recent && origin === 'cutoff') {
+    return { source: 'dse00', values: recent.mean, from: recent.from, to: recent.to };
+  }
+  const bands = bandsFor(subject);
+  const values = { 4: bands[4], 5: bands[5], '5*': bands[6], '5**': bands[7] };
+  const usable = Object.values(values).some((v) => Number.isFinite(v) && v > 0);
+  if (!usable) return null;
+  return { source: origin === 'tuned' ? 'yours' : 'default', values };
 }
 
 /**
@@ -318,7 +345,7 @@ export function renderPapers() {
       <div class="card-head">
         <div>
           <h2>Other papers</h2>
-          <div class="card-note">Mocks, other schools, textbooks and practice papers. They count towards the average, but stay out of the DSE matrix.</div>
+          <div class="card-note">Your school's mocks, other schools' papers, tutorial centre and publisher mocks, textbooks and practice papers. They count towards the average, but stay out of the DSE matrix.</div>
         </div>
         <span class="spacer"></span>
         <button class="btn btn-quiet btn-sm" data-act="other-paper" data-subject="${subject.id}">${icon('plus')} Add paper</button>
@@ -347,7 +374,7 @@ export function renderPapers() {
                   .join('')}
               </tbody>
             </table></div>`
-          : `<div class="empty"><b>No other papers yet.</b>A school mock is often the best evidence you have before March — log one and it feeds your prediction.</div>`
+          : `<div class="empty"><b>No other papers yet.</b>Your school's mock is often the best evidence you have before March — log one and it feeds your prediction.</div>`
       }
       ${
         otherLogs.length

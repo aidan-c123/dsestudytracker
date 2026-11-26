@@ -11,7 +11,7 @@
        and a stale grade would be worse than an error.
    ============================================================ */
 
-const VERSION = 'v1';
+const VERSION = 'v2';
 const SHELL_CACHE = `starshooter-shell-${VERSION}`;
 const ASSET_CACHE = `starshooter-assets-${VERSION}`;
 
@@ -20,6 +20,11 @@ const SHELL = [
   '/index.html',
   '/styles.css',
   '/logo.svg',
+  '/fonts/plex-sans-var.woff2',
+  '/fonts/plex-mono-400.woff2',
+  '/fonts/plex-mono-500.woff2',
+  '/fonts/newsreader.woff2',
+  '/fonts/newsreader-italic.woff2',
   '/manifest.webmanifest',
   '/main.js',
   '/app.js',

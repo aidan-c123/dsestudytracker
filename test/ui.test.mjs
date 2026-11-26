@@ -11,7 +11,6 @@
  */
 
 import { readFileSync } from 'node:fs';
-
 let JSDOM;
 try {
   ({ JSDOM } = await import('jsdom'));
@@ -172,6 +171,19 @@ function serve(path, method, body) {
 
 globalThis.fetch = async (input, options = {}) => {
   const url = new URL(String(input), 'https://desk.example/');
+  // The boundaries are a static data file, not an API route. Without serving it
+  // here the app silently falls back to neutral bands, and the strip under the
+  // matrix would be tested against the wrong numbers.
+  if (url.pathname === '/data/cutoffs.json') {
+    const body = readFileSync('./public/data/cutoffs.json', 'utf8');
+    return {
+      ok: true,
+      status: 200,
+      json: async () => JSON.parse(body),
+      text: async () => body,
+      headers: { get: () => null }
+    };
+  }
   const path = url.searchParams.get('__p') || '';
   const method = (options.method || 'GET').toUpperCase();
   const body = options.body ? JSON.parse(options.body) : null;
@@ -518,10 +530,22 @@ check('the Other paper dialog opens with every kind of paper', () => {
   const m = modal();
   if (!m) throw new Error('no dialog appeared');
   if (!m.querySelector('#other-form')) throw new Error('form missing');
-  const kinds = [...m.querySelectorAll('#op-source option')].map((o) => o.value);
-  for (const k of ['school', 'other-school', 'textbook', 'practice', 'other-board', 'other']) {
+  const options = [...m.querySelectorAll('#op-source option')];
+  const kinds = options.map((o) => o.value);
+  for (const k of ['school', 'other-school', 'tutorial', 'textbook', 'practice', 'other-board', 'other']) {
     if (!kinds.includes(k)) throw new Error(`missing source ${k}`);
   }
+  // The wording a student reads, and the key it is stored under, are separate
+  // on purpose: renaming a kind must never orphan records already filed under it.
+  const label = (k) => options.find((o) => o.value === k).textContent.trim();
+  if (label('school') !== "My school's mock") throw new Error(`school reads "${label('school')}"`);
+  if (label('other-school') !== "Other schools' mock") {
+    throw new Error(`other-school reads "${label('other-school')}"`);
+  }
+  if (label('tutorial') !== 'Tutorial centre / publisher mock') {
+    throw new Error(`tutorial reads "${label('tutorial')}"`);
+  }
+  if (kinds[0] !== 'school') throw new Error('the default kind is not the first option');
 });
 
 modal().querySelector('#op-subject').value = 's3';
@@ -556,10 +580,224 @@ await tick();
 check('the logged mock appears under Other papers', () => {
   const text = window.document.body.textContent;
   if (!text.includes("St Paul's mock 2026")) throw new Error('mock is not listed');
-  if (!text.includes('Other school mock')) throw new Error('its kind is not shown');
+  if (!text.includes("Other schools' mock")) throw new Error('its kind is not shown');
   const cells = window.document.querySelectorAll('.matrix .cell:not(.f-empty)');
   if (cells.length) throw new Error('the mock should not fill a matrix cell');
 });
+
+/* --- Grade boundaries show for every subject, with honest provenance ------ */
+
+app.navigate('papers');
+await tick();
+document.querySelector('[data-act="pick-subject"][data-id="s1"]')?.dispatchEvent(
+  new window.MouseEvent('click', { bubbles: true })
+);
+await tick();
+
+check('Chinese shows real five-year boundaries', () => {
+  const note = window.document.querySelector('.cut-note');
+  if (!note) throw new Error('no boundary strip for Chinese');
+  const items = [...note.querySelectorAll('.cut-item')].map((li) => li.textContent.replace(/\s+/g, ' ').trim());
+  if (items.length !== 4) throw new Error(`expected 4 grades, got ${items.length}: ${items.join(' | ')}`);
+  const head = note.querySelector('.cut-head').textContent;
+  if (!head.includes('2022')) throw new Error(`no year span: ${head}`);
+  if (!head.includes('CHIN')) throw new Error(`the subject code is not named: ${head}`);
+  if (!note.textContent.includes('DSE00')) throw new Error('the source is not credited');
+});
+
+check('the strip reads 4 → 5 → 5* → 5** with rising numbers', () => {
+  const items = [...window.document.querySelectorAll('.cut-note .cut-item')];
+  const grades = items.map((li) => li.querySelector('.cut-lvl').textContent.trim());
+  if (grades.join(',') !== '4,5,5*,5**') throw new Error(`wrong order: ${grades.join(',')}`);
+  const values = items.map((li) => Number(li.querySelector('.cut-pct').textContent.replace('%', '')));
+  if (values.some((v) => !Number.isFinite(v) || v <= 0 || v >= 100)) throw new Error(`bad values: ${values}`);
+  if (values.some((v, i) => i && v <= values[i - 1])) throw new Error(`not ascending: ${values.join(',')}`);
+  const starred = items.filter((li) => li.classList.contains('is-star')).length;
+  if (starred !== 2) throw new Error('5* and 5** should be the two marked columns');
+});
+
+/* A subject with no published rows must still show the strip, clearly labelled
+   as a starting point rather than pretending to be official. */
+const va = {
+  id: 's-va', code: 'VA', name: 'Visual Arts', category: 'elective',
+  targetLevel: 4, predictedLevel: null, attainment: null, gradeBands: null
+};
+db.subjects.push(va);
+// The view renders from the app's copy of the workspace, not from `db`, so the
+// subject has to be added there too or the tab has nothing to select.
+lib.state.data.subjects.push(JSON.parse(JSON.stringify(va)));
+lib.state.paperSubjectId = 's-va';
+app.navigate('papers');
+await tick();
+document.querySelector('[data-act="pick-subject"][data-id="s-va"]')?.dispatchEvent(
+  new window.MouseEvent('click', { bubbles: true })
+);
+await tick();
+
+check('a subject with no published boundaries still gets a labelled strip', () => {
+  const note = document.querySelector('.cut-note');
+  if (!note) throw new Error('no strip for a subject without published data');
+  const items = [...note.querySelectorAll('.cut-item')];
+  if (items.length !== 4) throw new Error(`expected 4 grades, got ${items.length}`);
+  if (!note.textContent.includes('starting point')) {
+    throw new Error('the strip does not say the numbers are only a starting point');
+  }
+  if (note.textContent.includes('DSE00')) {
+    throw new Error('it credits a source that published nothing for this subject');
+  }
+  if (!note.querySelector('.cut-adjust')) throw new Error('no way to adjust them');
+});
+
+/* A student's own bands win, and the strip says so. */
+va.gradeBands = { 2: 18, 3: 28, 4: 38, 5: 48, 6: 58, 7: 68 };
+lib.resetBandCache();
+const inState = lib.state.data.subjects.find((s) => s.id === 's-va');
+if (inState) inState.gradeBands = { ...va.gradeBands };
+lib.state.paperSubjectId = 's-va';
+app.navigate('papers');
+await tick();
+document.querySelector('[data-act="pick-subject"][data-id="s-va"]')?.dispatchEvent(
+  new window.MouseEvent('click', { bubbles: true })
+);
+await tick();
+
+check('a tuned subject shows the student’s own numbers', () => {
+  const note = document.querySelector('.cut-note');
+  if (!note) throw new Error('no strip');
+  if (!note.textContent.includes('your own bands')) throw new Error('it does not say whose bands these are');
+  const values = [...note.querySelectorAll('.cut-pct')].map((el) =>
+    Number(el.textContent.replace('%', ''))
+  );
+  if (values.join(',') !== '38,48,58,68') throw new Error(`expected the student's bands, got ${values}`);
+});
+
+/* --- Logging a session by start and end time, or by hours and minutes ----- */
+
+app.navigate('focus');
+await tick();
+document.querySelector('[data-act="manual-log"]').dispatchEvent(
+  new window.MouseEvent('click', { bubbles: true })
+);
+await tick();
+
+check('the log dialog opens on start and end times', () => {
+  const m = modal();
+  if (!m) throw new Error('no dialog');
+  const range = m.querySelector('[data-panel="range"]');
+  const duration = m.querySelector('[data-panel="duration"]');
+  if (!range || !duration) throw new Error('both entry modes should be in the form');
+  if (range.hidden) throw new Error('start and end should be the default');
+  if (!duration.hidden) throw new Error('hours and minutes should be hidden until chosen');
+  const pressed = m.querySelector('.seg-btn[aria-pressed="true"]');
+  if (pressed?.dataset.mode !== 'range') throw new Error('the wrong mode is marked as active');
+  if (!m.querySelector('#ml-hours') || !m.querySelector('#ml-mins')) {
+    throw new Error('there is no way to type hours and minutes');
+  }
+});
+
+check('a start and end time shows the length it adds up to', () => {
+  const m = modal();
+  m.querySelector('#ml-start').value = '2026-11-26T16:00';
+  m.querySelector('#ml-end').value = '2026-11-26T17:30';
+  m.querySelector('#ml-end').dispatchEvent(new window.Event('input', { bubbles: true }));
+  const hint = m.querySelector('#ml-range-hint').textContent;
+  if (!hint.includes('1h 30m')) throw new Error(`the length reads "${hint}"`);
+});
+
+check('the save button is refused until the range makes sense', () => {
+  const m = modal();
+  m.querySelector('#ml-start').value = '2026-11-26T18:00';
+  m.querySelector('#ml-end').value = '2026-11-26T17:00';
+  m.querySelector('#ml-end').dispatchEvent(new window.Event('input', { bubbles: true }));
+  if (!m.querySelector('#ml-range-hint').classList.contains('is-error')) {
+    throw new Error('a backwards range is not flagged');
+  }
+  const before = db.logs.length;
+  m.querySelector('#manual-log-form').dispatchEvent(
+    new window.Event('submit', { bubbles: true, cancelable: true })
+  );
+  return tick().then(() => {
+    if (db.logs.length !== before) throw new Error('a backwards range was saved anyway');
+  });
+});
+
+// Put a valid range back, so the next check is about carrying a length across
+// rather than about the deliberately broken one above.
+modal().querySelector('#ml-start').value = '2026-11-26T16:00';
+modal().querySelector('#ml-end').value = '2026-11-26T17:30';
+modal().querySelector('#ml-end').dispatchEvent(new window.Event('input', { bubbles: true }));
+
+/* The duration mode must save the same record shape as the range mode. */
+modal().querySelector('.seg-btn[data-mode="duration"]').dispatchEvent(
+  new window.MouseEvent('click', { bubbles: true })
+);
+await tick();
+
+check('switching mode carries the length across instead of resetting it', () => {
+  const m = modal();
+  const hours = Number(m.querySelector('#ml-hours').value);
+  const mins = Number(m.querySelector('#ml-mins').value);
+  if (hours !== 1 || mins !== 30) {
+    throw new Error(`expected 1h 30m to carry over, got ${hours}h ${mins}m`);
+  }
+  if (!m.querySelector('[data-panel="range"]').hidden) throw new Error('the range panel stayed visible');
+  if (m.querySelector('[data-panel="duration"]').hidden) throw new Error('the duration panel stayed hidden');
+  // Both panels ask for a finish time, so they must agree on it.
+  if (m.querySelector('#ml-when').value !== '2026-11-26T17:30') {
+    throw new Error(`the finish time carried over as "${m.querySelector('#ml-when').value}"`);
+  }
+});
+
+modal().querySelector('#ml-hours').value = '2';
+modal().querySelector('#ml-mins').value = '15';
+modal().querySelector('#ml-mins').dispatchEvent(new window.Event('input', { bubbles: true }));
+modal().querySelector('#ml-subject').value = 's3';
+modal().querySelector('#ml-label').value = 'Integration practice';
+const logsBefore = db.logs.length;
+modal().querySelector('#manual-log-form').dispatchEvent(
+  new window.Event('submit', { bubbles: true, cancelable: true })
+);
+await tick();
+await tick();
+
+check('hours and minutes save as one length', () => {
+  if (db.logs.length !== logsBefore + 1) throw new Error('the session was not saved');
+  const saved = db.logs[db.logs.length - 1];
+  if (saved.minutes !== 135) throw new Error(`saved ${saved.minutes} minutes instead of 135`);
+  if (saved.subjectId !== 's3') throw new Error('the subject was lost');
+  if (modal()) throw new Error('the dialog stayed open');
+});
+
+/* A session longer than a day is refused by the server, so the dialog must not
+   let it look saveable in the first place. */
+document.querySelector('[data-act="manual-log"]').dispatchEvent(
+  new window.MouseEvent('click', { bubbles: true })
+);
+await tick();
+modal().querySelector('.seg-btn[data-mode="duration"]').dispatchEvent(
+  new window.MouseEvent('click', { bubbles: true })
+);
+await tick();
+modal().querySelector('#ml-hours').value = '25';
+modal().querySelector('#ml-hours').dispatchEvent(new window.Event('input', { bubbles: true }));
+
+check('a session longer than a day is refused before saving', () => {
+  const hint = modal().querySelector('#ml-duration-hint');
+  if (!hint.classList.contains('is-error')) throw new Error('no warning is shown');
+  if (!/24 hours/.test(hint.textContent)) throw new Error(`the warning reads "${hint.textContent}"`);
+  const before = db.logs.length;
+  modal().querySelector('#manual-log-form').dispatchEvent(
+    new window.Event('submit', { bubbles: true, cancelable: true })
+  );
+  return tick().then(() => {
+    if (db.logs.length !== before) throw new Error('an over-long session was saved anyway');
+  });
+});
+
+modal()?.querySelector('[data-close]')?.dispatchEvent(
+  new window.MouseEvent('click', { bubbles: true })
+);
+await tick();
 
 /* --- Deleting a cell must not leave a duplicate behind -------------------- */
 
@@ -569,6 +807,8 @@ db.papers.push(
   { id: 'dup-b', subjectId: 's1', year: 2020, paper: 'P1', score: 91, maxScore: 100, percentage: 91, estimatedLevel: 7, attainment: null, attemptedAt: '2026-02-01T00:00:00.000Z' }
 );
 await app.boot();
+await tick();
+app.navigate('papers');
 await tick();
 document.querySelector('[data-act="pick-subject"][data-id="s1"]')?.dispatchEvent(
   new window.MouseEvent('click', { bubbles: true })
@@ -740,10 +980,42 @@ check('the logo is a real vector file used by the page and the tab', () => {
 
 /* --- Grade bands --------------------------------------------------------- */
 
-check('grade bands start from the shipped defaults', () => {
+check('grade bands come from the published cut-offs where they exist', () => {
+  // These used to fall back to the generic 35/45/55/65/75/85 because the data
+  // file and the reader disagreed on key shape. MATH's own boundaries are much
+  // higher, so the generic fallback cannot pass for them.
   const bands = lib.bandsFor({ code: 'MATH' });
-  if (bands[7] !== lib.DEFAULT_BANDS[7]) throw new Error('defaults not applied');
+  if (bands[7] === lib.DEFAULT_BANDS[7]) {
+    throw new Error('MATH fell back to the generic bands instead of its cut-offs');
+  }
+  if (bands[7] < 80) throw new Error(`MATH 5** boundary looks wrong: ${bands[7]}`);
   if (!(bands[7] > bands[5] && bands[5] > bands[3])) throw new Error('bands are not ascending');
+});
+
+check('every subject has a usable set of bands', () => {
+  const codes = [
+    'CHIN', 'ENG', 'MATH', 'M1', 'M2', 'BIOL', 'CHEM', 'PHYS', 'ECON', 'GEOG',
+    'HIST', 'CHIST', 'BAFS', 'ICT', 'CLIT', 'LIT', 'THS', 'HMSC', 'DAT', 'VA', 'MUS', 'PE', 'ERS'
+  ];
+  for (const code of codes) {
+    const bands = lib.bandsFor({ code });
+    const order = [2, 3, 4, 5, 6, 7].map((l) => bands[l]);
+    if (order.some((v) => !Number.isFinite(v) || v <= 0)) {
+      throw new Error(`${code} is missing a band: ${order.join(',')}`);
+    }
+    if (order.some((v, i) => i && v <= order[i - 1])) {
+      throw new Error(`${code} bands do not ascend: ${order.join(',')}`);
+    }
+  }
+});
+
+check('a subject without published boundaries still grades sensibly', () => {
+  // Visual Arts has no DSE00 rows, so it must fall back rather than show nothing.
+  const bands = lib.bandsFor({ code: 'VA' });
+  if (lib.levelFromPercentage(58, { code: 'VA' }) !== 4) {
+    throw new Error('a mid mark should still reach Level 4 on the fallback bands');
+  }
+  if (bands[7] !== lib.DEFAULT_BANDS[7]) throw new Error('the fallback is not the documented one');
 });
 
 check('a subject’s own bands change the level it predicts', () => {

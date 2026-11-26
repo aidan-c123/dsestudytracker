@@ -75,10 +75,18 @@ export const yearsFor = (subject) => {
  * remains an honest record of real past papers, but they count towards the
  * average, because they are still evidence of where a student is.
  */
+/* Kinds of paper that are not DSE past papers.
+ *
+ * The stored key is what matters: it is written into the database and must not
+ * change, or every record already filed under it would start reading as
+ * something else. The label beside it is only what the student sees, so the
+ * wording can be improved without touching saved data. `tutorial` is new, and
+ * older records simply never carry it. */
 export const OTHER_SOURCES = {
-  school: 'School mock',
-  'other-school': 'Other school mock',
-  textbook: 'Textbook / exercise',
+  school: "My school's mock",
+  'other-school': "Other schools' mock",
+  tutorial: 'Tutorial centre / publisher mock',
+  textbook: 'Textbook or exercise',
   practice: 'HKEAA practice paper',
   'other-board': 'Other exam board',
   other: 'Other'
@@ -174,6 +182,19 @@ export const fmtMinutes = (m) => {
   const rem = mins % 60;
   return rem ? `${h}h ${rem}m` : `${h}h`;
 };
+
+/**
+ * Minutes between two Date values, rounded to the nearest minute.
+ * Returns null when either end is missing or the range runs backwards, so the
+ * caller can say what is wrong instead of saving a negative session.
+ */
+export function minutesBetween(start, end) {
+  const a = start instanceof Date ? start.getTime() : new Date(start).getTime();
+  const b = end instanceof Date ? end.getTime() : new Date(end).getTime();
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return null;
+  const diff = Math.round((b - a) / 60000);
+  return diff > 0 ? diff : null;
+}
 export const pct = (n) => (Number.isFinite(n) ? `${Math.round(n)}%` : '—');
 export const initials = (name = '') =>
   name.trim().split(/\s+/).slice(0, 2).map((p) => p[0]?.toUpperCase() || '').join('') || 'D';
@@ -280,14 +301,24 @@ export function resetBandCache() {
   bandCache.clear();
 }
 
+/**
+ * Highest level a percentage reaches, against a set of bands handed in.
+ *
+ * Separate from `levelFromPercentage`, which looks the bands up itself, because
+ * the log dialog grades an attempt against the boundaries for its own sitting.
+ */
+export function levelFromBands(p, bands) {
+  if (!Number.isFinite(p) || !bands) return null;
+  for (const lvl of [7, 6, 5, 4, 3, 2]) {
+    if (Number.isFinite(bands[lvl]) && p >= bands[lvl]) return lvl;
+  }
+  return 1;
+}
+
 /** Highest level whose band the percentage reaches; 1 below the Level 2 band. */
 export const levelFromPercentage = (p, subject = null) => {
   if (!Number.isFinite(p)) return null;
-  const bands = bandsFor(subject);
-  for (const lvl of [7, 6, 5, 4, 3, 2]) {
-    if (p >= bands[lvl]) return lvl;
-  }
-  return 1;
+  return levelFromBands(p, bandsFor(subject));
 };
 
 /** Rough distance to the next band, for the "how close am I" hint. */

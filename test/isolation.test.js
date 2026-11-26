@@ -633,6 +633,41 @@ await test('other papers are logged apart from the DSE matrix', async () => {
   assert.equal(res.data.papers.length, me.data.papers.length, 'the DSE matrix is untouched');
 });
 
+await test('a tutorial centre mock can be logged as its own kind of paper', async () => {
+  const me = await callJson('/me', { cookie: alice });
+  const subj = me.data.subjects[0];
+
+  const res = await callJson('/other-papers', {
+    method: 'POST',
+    cookie: alice,
+    body: {
+      subjectId: subj.id,
+      title: 'Tutorial centre mock 2026',
+      source: 'tutorial',
+      takenOn: '2026-02-03',
+      score: 58,
+      maxScore: 80
+    }
+  });
+  assert.equal(res.status, 201);
+  const saved = res.data.otherPapers.find((p) => p.title === 'Tutorial centre mock 2026');
+  assert.ok(saved, 'the paper was saved');
+  assert.equal(saved.source, 'tutorial', 'the new kind is stored, not coerced to "school"');
+
+  // An unknown kind is still refused, so a typo cannot invent a category.
+  const bogus = await callJson('/other-papers', {
+    method: 'POST',
+    cookie: alice,
+    body: { subjectId: subj.id, title: 'Nowhere mock', source: 'made-up', takenOn: '2026-02-04' }
+  });
+  assert.equal(bogus.status, 201);
+  assert.equal(
+    bogus.data.otherPapers.find((p) => p.title === 'Nowhere mock').source,
+    'school',
+    'an unknown kind falls back to the first one'
+  );
+});
+
 await test('other papers validate their name, date and score', async () => {
   const me = await callJson('/me', { cookie: alice });
   const subj = me.data.subjects[0];
@@ -667,7 +702,12 @@ await test('another student cannot read, edit or delete your other papers', asyn
 
   await callJson(`/other-papers/${id}`, { method: 'DELETE', cookie: bob });
   const still = await callJson('/me', { cookie: alice });
-  assert.equal(still.data.otherPapers.length, 1, 'record survived the foreign delete');
+  // Ask about this record, not about a total: other tests legitimately add
+  // their own papers, and a count would fail for the wrong reason.
+  assert.ok(
+    still.data.otherPapers.some((p) => p.id === id),
+    'record survived the foreign delete'
+  );
 });
 
 await test('a foreign subject cannot be used for another paper', async () => {

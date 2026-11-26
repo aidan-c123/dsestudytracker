@@ -5,7 +5,8 @@
 import {
   $, $$, esc, icon, state, api, refresh, hooks, toast, openModal, closeModal,
   applyTheme, toggleTheme, submitting, errorText, subjectById, subjectPrediction, papersOf, papersFor,
-  papersForYear, matrixPapersFor, OTHER_SOURCES, BAND_LEVELS, bandsFor, resetBandCache, levelFromPercentage, nextBand, pct,
+  papersForYear, matrixPapersFor, OTHER_SOURCES, BAND_LEVELS, bandsFor, bandsForYear, resetBandCache,
+  levelFromPercentage, levelFromBands, nextBand, pct, fmtMinutes, minutesBetween,
   lvlLabel, lvlChip, fmtDate, toLocalInput, daysUntil, subjectDsePct,
   usesAttainment, CSD_CODE, CSD_FIRST_YEAR, yearsFor, otherSourceLabel
 } from './lib.js';
@@ -129,7 +130,7 @@ const HANDLERS = {
 
   'edit-paper': (el) => {
     const paper = state.data.papers.find((p) => p.id === el.dataset.id);
-    if (paper) openPaperModal({ paper });
+    if (paper) openPaperModal({ record: paper });
   },
 
   'delete-paper': async (el) => {
@@ -389,10 +390,12 @@ async function logManual({ minutes, subjectId = null, label = '', completedAt })
 
 function openManualLogModal() {
   const subjects = state.data.subjects;
-  const when = toLocalInput();
+  const now = new Date();
+  const when = toLocalInput(now);
+
   openModal({
     title: 'Log a study session',
-    subtitle: "For work you did off the timer.",
+    subtitle: 'For work you did off the timer.',
     body: `
       <form id="manual-log-form" class="form-grid">
         <div class="field">
@@ -402,16 +405,50 @@ function openManualLogModal() {
             ${subjects.map((s) => `<option value="${s.id}">${esc(s.name)}</option>`).join('')}
           </select>
         </div>
-        <div class="form-grid two">
-          <div class="field">
-            <label for="ml-minutes">Minutes</label>
-            <input id="ml-minutes" type="number" min="1" max="1440" step="5" value="45" required />
-          </div>
-          <div class="field">
-            <label for="ml-when">Finished at</label>
-            <input id="ml-when" type="datetime-local" value="${when}" required />
+
+        <!-- Two ways to say the same thing. Start and end times are the default
+             because that is how a student remembers a session; hours and
+             minutes are there for when only the length is known. -->
+        <div class="field">
+          <span class="field-label">How would you rather enter it?</span>
+          <div class="seg" role="group" aria-label="How to enter the session length">
+            <button type="button" class="seg-btn" data-mode="range" aria-pressed="true">Start &amp; end time</button>
+            <button type="button" class="seg-btn" data-mode="duration" aria-pressed="false">Hours &amp; minutes</button>
           </div>
         </div>
+
+        <div data-panel="range">
+          <div class="form-grid two">
+            <div class="field">
+              <label for="ml-start">Started at</label>
+              <input id="ml-start" type="datetime-local" value="${toLocalInput(new Date(now.getTime() - 45 * 60000))}" />
+            </div>
+            <div class="field">
+              <label for="ml-end">Finished at</label>
+              <input id="ml-end" type="datetime-local" value="${when}" />
+            </div>
+          </div>
+          <p class="hint" id="ml-range-hint">45 minutes.</p>
+        </div>
+
+        <div data-panel="duration" hidden>
+          <div class="form-grid three">
+            <div class="field">
+              <label for="ml-hours">Hours</label>
+              <input id="ml-hours" type="number" min="0" max="24" step="1" value="0" inputmode="numeric" />
+            </div>
+            <div class="field">
+              <label for="ml-mins">Minutes</label>
+              <input id="ml-mins" type="number" min="0" max="59" step="5" value="45" inputmode="numeric" />
+            </div>
+            <div class="field">
+              <label for="ml-when">Finished at</label>
+              <input id="ml-when" type="datetime-local" value="${when}" />
+            </div>
+          </div>
+          <p class="hint" id="ml-duration-hint">45 minutes.</p>
+        </div>
+
         <div class="field">
           <label for="ml-label">What did you work on?</label>
           <input id="ml-label" maxlength="80" placeholder="What you worked on" />
@@ -420,19 +457,149 @@ function openManualLogModal() {
     footer: `<button class="btn btn-quiet" data-close type="button">Cancel</button>
       <button class="btn btn-primary" type="submit" form="manual-log-form">Save session</button>`,
     onMount: (dialog) => {
-      dialog.querySelector('#manual-log-form').addEventListener('submit', async (e) => {
+      const form = dialog.querySelector('#manual-log-form');
+      const start = dialog.querySelector('#ml-start');
+      const end = dialog.querySelector('#ml-end');
+      const hours = dialog.querySelector('#ml-hours');
+      const mins = dialog.querySelector('#ml-mins');
+      const rangeHint = dialog.querySelector('#ml-range-hint');
+      const durHint = dialog.querySelector('#ml-duration-hint');
+      const whenInput = dialog.querySelector('#ml-when');
+      let mode = 'range';
+
+      // The server refuses anything longer than a day, so the dialog says so
+      // before the save button is pressed rather than after.
+      const MAX_SESSION = 1440;
+
+      const readRange = () => {
+        if (!start.value || !end.value) return null;
+        const total = minutesBetween(new Date(start.value), new Date(end.value));
+        return total && total > MAX_SESSION ? Infinity : total;
+      };
+
+      const readDuration = () => {
+        const h = Math.max(0, Math.min(24, Math.floor(Number(hours.value) || 0)));
+        const m = Math.max(0, Math.min(59, Math.floor(Number(mins.value) || 0)));
+        const total = h * 60 + m;
+        if (total <= 0) return null;
+        return total > MAX_SESSION ? Infinity : total;
+      };
+
+      const paintRange = () => {
+        const total = readRange();
+        if (total === Infinity) {
+          rangeHint.textContent = 'One session can be at most 24 hours.';
+          rangeHint.classList.add('is-error');
+          return null;
+        }
+        if (total === null) {
+          const backwards = start.value && end.value;
+          rangeHint.textContent = backwards
+            ? 'The end time needs to be after the start time.'
+            : 'Add a start and an end time.';
+          rangeHint.classList.toggle('is-error', Boolean(backwards));
+        } else {
+          rangeHint.textContent = `That is ${fmtMinutes(total)}.`;
+          rangeHint.classList.remove('is-error');
+        }
+        return total;
+      };
+
+      const paintDuration = () => {
+        const total = readDuration();
+        if (total === Infinity) {
+          durHint.textContent = 'One session can be at most 24 hours.';
+          durHint.classList.add('is-error');
+          return null;
+        }
+        durHint.textContent = total
+          ? `That is ${fmtMinutes(total)}.`
+          : 'Enter at least one minute.';
+        durHint.classList.toggle('is-error', total === null);
+        return total;
+      };
+
+      // Keep the two panels agreeing: carrying the length across means switching
+      // tabs to check a number never wipes what was already typed.
+      const switchTo = (next) => {
+        if (next === mode) return;
+        const total = mode === 'range' ? readRange() : readDuration();
+        mode = next;
+        dialog.querySelectorAll('.seg-btn').forEach((btn) => {
+          btn.setAttribute('aria-pressed', String(btn.dataset.mode === mode));
+        });
+        dialog.querySelectorAll('[data-panel]').forEach((panel) => {
+          panel.hidden = panel.dataset.panel !== mode;
+        });
+        if (total) {
+          if (mode === 'duration') {
+            hours.value = String(Math.floor(total / 60));
+            mins.value = String(total % 60);
+            // Both panels ask for the same finish time, so switching must carry
+            // it across rather than leaving the other field on its old value.
+            whenInput.value = toLocalInput(new Date(end.value));
+          } else {
+            // Anchor the range on the finish time, which both panels share.
+            const finish = new Date(whenInput.value || end.value || Date.now());
+            start.value = toLocalInput(new Date(finish.getTime() - total * 60000));
+            end.value = toLocalInput(finish);
+          }
+        }
+        if (mode === 'range') paintRange();
+        else paintDuration();
+      };
+
+      dialog.querySelectorAll('.seg-btn').forEach((btn) => {
+        btn.addEventListener('click', () => switchTo(btn.dataset.mode));
+      });
+      start.addEventListener('input', paintRange);
+      end.addEventListener('input', () => {
+        // Keep the duration panel on the same finish time, so switching tabs
+        // never shows a different moment than the one just typed.
+        if (end.value) whenInput.value = end.value;
+        paintRange();
+      });
+      whenInput.addEventListener('input', () => {
+        if (whenInput.value) end.value = whenInput.value;
+        paintDuration();
+      });
+      hours.addEventListener('input', paintDuration);
+      mins.addEventListener('input', paintDuration);
+      paintRange();
+
+      form.addEventListener('submit', async (e) => {
         e.preventDefault();
+        const total = mode === 'range' ? paintRange() : paintDuration();
+        if (total === null) {
+          toast(
+            mode === 'range'
+              ? 'Set a start and an end time, with the end after the start.'
+              : 'Enter at least one minute.',
+            'error'
+          );
+          return;
+        }
+
+        // The session is stored as a length plus the time it finished, so both
+        // entry modes end up as the same record.
+        const finished = mode === 'range' ? end.value : whenInput.value;
+        const finishedAt = finished ? new Date(finished) : new Date();
+        if (Number.isNaN(finishedAt.getTime())) {
+          toast('That finish time is not valid.', 'error');
+          return;
+        }
+
         const btn = dialog.querySelector('button[type="submit"]');
         const restore = submitting(btn, 'Saving…');
         try {
           await logManual({
-            minutes: Number(dialog.querySelector('#ml-minutes').value),
+            minutes: total,
             subjectId: dialog.querySelector('#ml-subject').value,
             label: dialog.querySelector('#ml-label').value,
-            completedAt: new Date(dialog.querySelector('#ml-when').value).toISOString()
+            completedAt: finishedAt.toISOString()
           });
           closeModal();
-          toast('Session saved.');
+          toast(`Session saved — ${fmtMinutes(total)}.`);
         } catch (err) {
           restore();
           toast(errorText(err), 'error');
@@ -444,13 +611,17 @@ function openManualLogModal() {
 
 /* ------------------------------- paper modal ------------------------------- */
 
-function openPaperModal({ subjectId, year, paper, paper: paperRecord } = {}) {
+function openPaperModal({ subjectId, year, paper, record } = {}) {
   const subjects = state.data.subjects;
   if (!subjects.length) {
     toast('Add a subject first.', 'error');
     return;
   }
-  const existing = paperRecord || null;
+  // `record` is the saved attempt being edited; the rest is the cell to open.
+  // The old signature destructured `paper` twice, so a fresh log arrived with
+  // `existing` already set — which titled a new attempt "Edit" and printed
+  // "undefined undefined" under it.
+  const existing = record || null;
   const initialSubject = existing?.subjectId || subjectId || state.paperSubjectId || subjects[0].id;
   const initialYear = existing?.year || Number(year) || 2026;
   const initialPaper = existing?.paper || paper || 'P1';
@@ -461,7 +632,7 @@ function openPaperModal({ subjectId, year, paper, paper: paperRecord } = {}) {
 
   openModal({
     title: existing ? 'Edit attempt' : 'Log a paper attempt',
-    subtitle: existing ? `${paperRecord.year} ${paperRecord.paper}` : 'One cell per paper. Logging the same cell again updates it.',
+    subtitle: existing ? `${existing.year} ${existing.paper}` : 'One cell per paper. Logging the same cell again updates it.',
     wide: true,
     body: `
       <form id="paper-form" class="form-grid">
@@ -542,28 +713,39 @@ function openPaperModal({ subjectId, year, paper, paper: paperRecord } = {}) {
       const yearField = dialog.querySelector('#pf-year');
       let pctTouched = Boolean(existing?.percentage);
 
+      // Grade against the boundaries for the year being logged, so an old
+      // script is not judged by the latest sitting's cut-offs. Regrading on
+      // every keystroke wins over an edited attempt's stored level, which
+      // would otherwise keep quoting the bands that applied when it was saved.
+      const grade = (p) => {
+        if (!Number.isFinite(p)) return;
+        const subject = subjectById(subjectField.value);
+        if (usesAttainment(subject)) {
+          attainField.value = p >= 50 ? 'attained' : 'unattained';
+          return;
+        }
+        const bands = bandsForYear(subject, Number(yearField.value));
+        const level = levelFromBands(p, bands);
+        if (level !== null) levelField.value = String(level);
+      };
+
       const recalc = () => {
         if (pctTouched) return;
         const s = Number(score.value);
         const m = Number(max.value);
-        if (score.value !== '' && m > 0) pctField.value = Math.round((s / m) * 1000) / 10;
+        if (score.value !== '' && m > 0) {
+          pctField.value = Math.round((s / m) * 1000) / 10;
+          // Filling the percentage from the marks is an edit too, so the grade
+          // has to follow. Setting `.value` does not fire an input event.
+          grade(Number(pctField.value));
+        }
       };
       score.addEventListener('input', recalc);
       max.addEventListener('input', recalc);
       pctField.addEventListener('input', () => {
         pctTouched = true;
-        const p = Number(pctField.value);
-        if (!levelField.value && !attainField.value && Number.isFinite(p) && pctField.value !== '') {
-          const subject = subjectById(subjectField.value);
-          if (usesAttainment(subject)) {
-            attainField.value = p >= 50 ? 'attained' : 'unattained';
-          } else {
-            // Grade against the boundaries for the year being logged, so an old
-            // script is not judged by the latest sitting's cut-offs.
-            const bands = bandsForYear(subject, Number(yearField.value));
-            levelField.value = String(levelFromPercentageWith(p, bands));
-          }
-        }
+        if (pctField.value === '') return;
+        grade(Number(pctField.value));
       });
 
       // A different subject or year can change which papers existed, so the
@@ -717,7 +899,7 @@ function openOtherPaperModal(record = null) {
     title: existing ? 'Edit paper' : 'Log a paper that isn\'t a DSE past paper',
     subtitle: existing
       ? `${esc(existing.title)}`
-      : 'Mocks, other schools, textbooks and practice papers. Kept out of the DSE matrix.',
+      : "Your school's mock, another school's, a tutorial centre or publisher mock, or a practice paper. Kept out of the DSE matrix.",
     body: `
       <form id="other-form" class="form-grid">
         <div class="form-grid two">
@@ -744,7 +926,7 @@ function openOtherPaperModal(record = null) {
         <div class="field">
           <label for="op-title">Name</label>
           <input id="op-title" maxlength="120" required value="${esc(existing?.title || '')}"
-            placeholder="School mock · paper name and year" />
+            placeholder="Mock name and year, e.g. Form 6 Mock 2026" />
         </div>
         <div class="form-grid two">
           <div class="field">

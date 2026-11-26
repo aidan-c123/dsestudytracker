@@ -369,9 +369,10 @@ export async function handleApi(request, path, injectedStore) {
     }
 
     /* --------------------------- other papers ------------------------------
-     * School mocks, other schools' papers, textbooks and practice papers.
-     * Kept out of the DSE matrix so the matrix stays a truthful record of
-     * actual past papers, but still counted in the average and prediction.
+     * Your school's mock, other schools' papers, tutorial centre and publisher
+     * mocks, textbook questions and practice papers. Kept out of the DSE matrix
+     * so the matrix stays a truthful record of actual past papers, but still
+     * counted in the average and prediction.
      */
 
     if (path === '/other-papers' && method === 'POST') {

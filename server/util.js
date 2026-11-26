@@ -178,13 +178,17 @@ export function paperRetired(code, year, paper) {
 
 /**
  * Papers that are not DSE past papers. The matrix stays DSE-only, so these are
- * logged separately: school mocks, other schools' papers, textbooks, practice
- * papers and other exam boards.
+ * logged separately: your own school's mock, another school's, a tutorial
+ * centre or publisher mock, textbooks, practice papers and other exam boards.
+ *
+ * The keys are stored in the database and are therefore permanent; only the
+ * labels are wording, and changing one never rewrites a saved record.
  */
 export const OTHER_SOURCES = {
-  school: 'School mock',
-  'other-school': 'Other school mock',
-  textbook: 'Textbook / exercise',
+  school: "My school's mock",
+  'other-school': "Other schools' mock",
+  tutorial: 'Tutorial centre / publisher mock',
+  textbook: 'Textbook or exercise',
   practice: 'HKEAA practice paper',
   'other-board': 'Other exam board',
   other: 'Other'

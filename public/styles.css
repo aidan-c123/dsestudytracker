@@ -1,8 +1,60 @@
 /* ============================================================
    StarShooter — HKDSE study desk
    Workbook palette: paper, ink, one working green, red pen
-   No gradients, no background texture, no ornamental shadow.
+   No gradients, no ornamental shadow. The only texture is the
+   faint squared paper the page is printed on.
    ============================================================ */
+
+/* ------------------------------- typefaces -------------------------------
+   Self-hosted, because a study desk that has to reach a font CDN before it
+   renders is a study desk that stalls on a school network. Both families are
+   variable fonts covering the whole weight range in one file.
+
+   IBM Plex Sans sets the interface: an engineering sans with real character
+   in its lowercase, and figures that line up in a column.
+   Newsreader is the display voice, used only for the page title, the
+   countdown and the timer, where a broader stroke is earned.
+   ------------------------------------------------------------------------- */
+
+@font-face {
+  font-family: "Plex Sans";
+  src: url("/fonts/plex-sans-var.woff2") format("woff2");
+  font-weight: 100 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Plex Mono";
+  src: url("/fonts/plex-mono-400.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Plex Mono";
+  src: url("/fonts/plex-mono-500.woff2") format("woff2");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Newsreader";
+  src: url("/fonts/newsreader.woff2") format("woff2");
+  font-weight: 400 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Newsreader";
+  src: url("/fonts/newsreader-italic.woff2") format("woff2");
+  font-weight: 400 600;
+  font-style: italic;
+  font-display: swap;
+}
 
 :root {
   --paper: #f8f6f1;
@@ -35,46 +87,56 @@
   --shadow-sm: 0 1px 2px rgba(52, 45, 30, 0.045), 0 6px 16px -12px rgba(52, 45, 30, 0.16);
   --radius: 10px;
   --radius-control: 6px;
-  --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial,
-    "PingFang HK", "Noto Sans TC", sans-serif;
+  --font-ui: "Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue",
+    Arial, "PingFang HK", "Noto Sans TC", sans-serif;
   /* A display serif, used only for the page title, the countdown and the
      timer — three places where a bigger voice is earned. */
-  --font-display: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua",
-    "Source Serif 4", Georgia, "Songti SC", serif;
+  --font-display: "Newsreader", "Iowan Old Style", "Palatino Linotype", Palatino,
+    "Book Antiqua", Georgia, "Songti SC", serif;
   /* Figures align in columns without pretending to be code. */
-  --font-num: ui-monospace, "SF Mono", "Cascadia Mono", "Roboto Mono", Menlo, monospace;
+  --font-num: "Plex Mono", ui-monospace, "SF Mono", "Cascadia Mono", "Roboto Mono", Menlo, monospace;
   --sans: var(--font-ui);
   --mono: var(--font-num);
+  /* Squared paper: one hairline per cell, faint enough to read as the paper
+     itself rather than as a pattern laid over it. */
+  --grid: color-mix(in srgb, var(--line-strong) 42%, transparent);
+  --grid-size: 28px;
   color-scheme: light;
 }
 
 html[data-theme="dark"] {
-  --paper: #0f1113;
-  --paper-2: #171a1d;
-  --paper-3: #1f2327;
-  --ink: #eef0ec;
-  --ink-soft: #c2c8c4;
-  --muted: #8d958f;
-  --line: #2a2f33;
-  --line-strong: #3d4449;
+  /* Not grey with a green accent, but a slate with a green cast: the paper
+     leans toward the desk lamp's colour, and the greens read as the same
+     family rather than as ink sitting on neutral. */
+  --paper: #0d1210;
+  --paper-2: #151b18;
+  --paper-3: #1d2521;
+  --ink: #e9efea;
+  --ink-soft: #bcc8c1;
+  --muted: #8a9891;
+  --line: #26302b;
+  --line-strong: #39463f;
   --accent: #7fd0b6;
   --accent-ink: #08130f;
-  --accent-soft: #182924;
-  --accent-line: #31544a;
+  --accent-soft: #172a23;
+  --accent-line: #2f5548;
   --warn: #f0997f;
-  --warn-soft: #2e201b;
+  --warn-soft: #2c1f1a;
   --gold: #e0c383;
-  --gold-soft: #2b2517;
+  --gold-soft: #2a2517;
   --grade-1: #d3b0a5;
   --grade-2: #dcc394;
   --grade-3: #c6cf92;
   --info: #8fb8e0;
-  --info-soft: #18242f;
-  --info-line: #2f4457;
+  --info-soft: #17232e;
+  --info-line: #2d4255;
   --plum: #c3a0d2;
-  --plum-soft: #251c2b;
-  --plum-line: #3e2f47;
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4), 0 10px 24px -16px rgba(0, 0, 0, 0.85);
+  --plum-soft: #241b2a;
+  --plum-line: #3c2d45;
+  /* The grid is fainter in the dark: at full strength it would read as a
+     wireframe and fight the panels. */
+  --grid: color-mix(in srgb, var(--line-strong) 55%, transparent);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.45), 0 10px 24px -16px rgba(0, 0, 0, 0.9);
   color-scheme: dark;
 }
 
@@ -83,7 +145,15 @@ html[data-theme="dark"] {
 html, body { margin: 0; padding: 0; }
 
 body {
-  background: var(--paper);
+  background-color: var(--paper);
+  /* Squared paper, drawn as two hairlines rather than an image: nothing to
+     download, and the cells follow the theme's own line colour. The grid is
+     fixed to the page, like print, so panels scroll over it. */
+  background-image:
+    linear-gradient(to right, var(--grid) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--grid) 1px, transparent 1px);
+  background-size: var(--grid-size) var(--grid-size);
+  background-position: -1px -1px;
   color: var(--ink);
   font-family: var(--sans);
   font-size: 15px;
@@ -323,6 +393,27 @@ html[data-theme="dark"] select {
 }
 .form-grid { display: grid; gap: 13px; }
 .form-grid.two { grid-template-columns: 1fr 1fr; }
+.form-grid.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+
+/* A two-way switch inside a form: reads as a choice, not as a button to press.
+   The selected side is filled, so the current mode is obvious at a glance. */
+.seg {
+  display: inline-flex; align-self: start;
+  border: 1px solid var(--line-strong); border-radius: var(--radius-control);
+  background: var(--paper-2); padding: 2px; gap: 2px;
+}
+.seg-btn {
+  border: 0; background: transparent; cursor: pointer;
+  font-family: var(--sans); font-size: 0.8rem; font-weight: 550;
+  color: var(--muted); padding: 6px 12px; border-radius: 4px;
+  min-height: 32px; white-space: nowrap;
+}
+.seg-btn:hover { color: var(--ink); }
+.seg-btn[aria-pressed="true"] {
+  background: var(--accent-soft); color: var(--accent);
+  font-weight: 650; box-shadow: inset 0 0 0 1px var(--accent-line);
+}
+.field .hint.is-error { color: var(--warn); }
 
 /* ---------------------------------- chips --------------------------------- */
 
@@ -528,36 +619,49 @@ html[data-theme="dark"] select {
 .matrix-legend { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 10px; font-size: 0.72rem; color: var(--muted); }
 .matrix-legend span { display: inline-flex; align-items: center; gap: 5px; }
 
-/* Grade boundaries, quoted from the published cut-off tables. */
+/* Grade boundaries, quoted from the published cut-off tables. One line of
+   figures: the page already says a lot, so this is a reference strip rather
+   than a table to study. */
 .cut-note {
   margin-top: 12px; padding: 12px 14px;
   border: 1px solid var(--line); border-radius: var(--radius-control);
   background: var(--paper);
 }
 .cut-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; font-size: 0.79rem; }
-.cut-head .spacer { flex: 1; }
 .cut-head .muted { font-size: 0.73rem; }
-.cut-key { font-size: 0.7rem; color: var(--muted); display: inline-flex; align-items: center; gap: 5px; }
-.cut-key i { width: 8px; height: 8px; border-radius: 2px; background: var(--accent); }
-.cut-key-raw { opacity: 0.75; }
-
-/* Six boundaries per row, with the starred grades visibly marked. */
-.bd-block { margin-top: 10px; }
-.bd-label { font-size: 0.7rem; color: var(--muted); margin-bottom: 5px; }
-.bd-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 4px; }
-.bd-cell {
-  display: grid; gap: 1px; justify-items: center; padding: 6px 4px;
-  border: 1px solid var(--line); border-radius: 4px; background: var(--paper-2);
-  font-variant-numeric: tabular-nums; line-height: 1.3;
+/* Only shown when the numbers are not published ones, so the strip says how to
+   improve them rather than leaving the student to hunt through Settings. */
+.cut-adjust {
+  margin-left: auto; border: 0; background: transparent; padding: 0;
+  font-family: var(--sans); font-size: 0.73rem; font-weight: 600;
+  color: var(--accent); cursor: pointer; text-decoration: underline;
+  text-underline-offset: 2px;
 }
-.bd-grade { font-size: 0.72rem; font-weight: 650; color: var(--ink-soft); }
-.bd-pct { font-size: 0.85rem; font-weight: 650; color: var(--ink); }
-.bd-raw { font-size: 0.64rem; color: var(--muted); font-family: var(--font-num); }
-/* 5* and 5** are what a candidate is chasing, so they get the accent. */
-.bd-cell.is-star { border-color: var(--accent-line); background: var(--accent-soft); }
-.bd-cell.is-star .bd-grade, .bd-cell.is-star .bd-pct { color: var(--accent); }
-.bd-extra { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--line); display: grid; gap: 8px; }
-.cut-foot { margin-top: 10px; font-size: 0.71rem; color: var(--muted); line-height: 1.55; }
+.cut-adjust:hover { color: var(--ink); }
+
+.cut-list {
+  display: flex; align-items: stretch; flex-wrap: wrap;
+  margin: 9px 0 0; padding: 0; list-style: none;
+  border: 1px solid var(--line); border-radius: 4px; background: var(--paper-2);
+  overflow: hidden;
+}
+.cut-item {
+  flex: 1 1 0; min-width: 68px;
+  display: flex; align-items: baseline; justify-content: center; gap: 7px;
+  padding: 7px 10px;
+  border-left: 1px solid var(--line);
+  font-variant-numeric: tabular-nums;
+}
+.cut-item:first-child { border-left: 0; }
+.cut-lvl { font-size: 0.74rem; font-weight: 600; color: var(--muted); letter-spacing: 0.01em; }
+.cut-pct { font-family: var(--font-num); font-size: 0.94rem; font-weight: 500; color: var(--ink); }
+.cut-pct i { font-style: normal; font-size: 0.7rem; color: var(--muted); margin-left: 1px; }
+/* 5* and 5** are what a candidate is chasing, so the two starred columns are
+   the ones that carry the accent. */
+.cut-item.is-star { background: var(--accent-soft); }
+.cut-item.is-star .cut-lvl { color: var(--accent); }
+.cut-item.is-star .cut-pct { color: var(--accent); font-weight: 600; }
+.cut-foot { margin-top: 8px; font-size: 0.71rem; color: var(--muted); line-height: 1.55; }
 .cut-foot a { color: var(--accent); }
 
 /* The prediction, fresh from the current bands. */
@@ -924,6 +1028,10 @@ html[data-theme="dark"] .toast.error { background: var(--warn); color: #1a0f0a; 
   .count-cell { min-width: 46px; padding: 5px 6px; }
   .card { padding: 14px; }
   .form-grid.two { grid-template-columns: 1fr; }
+  /* Hours and minutes side by side, with the finish time on its own row: a
+     three-column grid on a phone leaves each field too narrow to tap. */
+  .form-grid.three { grid-template-columns: 1fr 1fr; }
+  .form-grid.three > .field:last-child { grid-column: 1 / -1; }
   .ring-wrap { gap: 14px; }
   .ring { width: 92px; height: 92px; }
 

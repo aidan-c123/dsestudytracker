@@ -39,10 +39,10 @@ const findOwned = (table, userId, docId) => {
 };
 
 const CORE = [
-  { code: 'CHIN', name: '中國語文' },
+  { code: 'CHIN', name: 'Chinese Language' },
   { code: 'ENG', name: 'English Language' },
   { code: 'MATH', name: 'Mathematics' },
-  { code: 'CSD', name: '公民與社會發展' }
+  { code: 'CSD', name: 'Citizenship & Social Development' }
 ];
 
 const seedSubject = (userId, code, name, i) => {

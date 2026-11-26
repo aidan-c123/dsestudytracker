@@ -46,7 +46,7 @@ export function loadCutoffs() {
   loading = fetch('/data/cutoffs.json', { cache: 'force-cache' })
     .then((res) => (res.ok ? res.json() : null))
     .then((data) => {
-      table = data?.subjects ? data : null;
+      table = data?.subjects ? normalise(data) : null;
       if (table) {
         // Let any rendered view respray its bands without a full reload.
         window.dispatchEvent(new CustomEvent('cutoffs:ready'));
@@ -62,6 +62,51 @@ export function loadCutoffs() {
     });
 
   return loading;
+}
+
+/**
+ * The percentages in the data file are keyed two ways depending on when the
+ * file was generated: by grade name ("5**") in the current generator, or by
+ * level number ("7") in the file that shipped. Reading the wrong one fails
+ * silently — `Number(undefined)` is NaN, so every boundary is dropped and the
+ * app falls back to its generic 35/45/55/65/75/85 bands. That made Chinese
+ * 70% grade as a 5 instead of a 5**. Normalising once on load means either
+ * shape grades correctly, and the next regeneration cannot quietly break it.
+ */
+function normalisePercent(percent) {
+  if (!percent || typeof percent !== 'object') return null;
+  const out = {};
+  let found = false;
+  for (const [level, grade] of Object.entries(GRADE_KEY)) {
+    const raw = Number(percent[grade] ?? percent[level]);
+    if (Number.isFinite(raw) && raw > 0 && raw < 100) {
+      out[grade] = raw;
+      found = true;
+    }
+  }
+  return found ? out : null;
+}
+
+function normalise(data) {
+  const subjects = data.subjects || {};
+  for (const record of Object.values(subjects)) {
+    if (!record || typeof record !== 'object') continue;
+    const top = normalisePercent(record.percent);
+    if (top) record.percent = top;
+    if (record.byYear) {
+      for (const row of Object.values(record.byYear)) {
+        const pct = normalisePercent(row?.percent);
+        if (pct) row.percent = pct;
+      }
+    }
+    if (record.papers) {
+      for (const paper of Object.values(record.papers)) {
+        const pct = normalisePercent(paper?.percent);
+        if (pct) paper.percent = pct;
+      }
+    }
+  }
+  return data;
 }
 
 export const cutoffsLoaded = () => Boolean(table);
@@ -87,10 +132,15 @@ export function paperCutoffFor(code, paper) {
 export function cutoffBands(code) {
   const subject = cutoffFor(code);
   if (!subject?.percent) return null;
+  // Prefer the five-sitting mean, so the boundaries on screen are the same
+  // numbers used to grade a paper. Falling back to the shipped three-sitting
+  // mean keeps working for a subject with very few published years.
+  const recent = recentBoundaries(code);
+  const source = recent?.mean || subject.percent;
   const bands = {};
   let ok = false;
   for (const level of [2, 3, 4, 5, 6, 7]) {
-    const raw = Number(subject.percent[GRADE_KEY[level]]);
+    const raw = Number(source[GRADE_KEY[level]]);
     if (Number.isFinite(raw) && raw > 0 && raw < 100) {
       bands[level] = Math.round(raw);
       ok = true;
@@ -119,6 +169,42 @@ export function cutoffSummary(code, paper = null) {
     recentFrom: record.recentFrom,
     recentTo: record.recentTo
   };
+}
+
+/**
+ * The last five sittings as one set of boundaries, for the plain list shown on
+ * the Papers tab. One year's cut-off can move several marks for reasons that
+ * have nothing to do with the candidate (a harder paper, a different option
+ * mix), so five years is the steadiest honest summary the source supports.
+ *
+ * Only the grades from 4 up are kept: those are the ones a candidate is
+ * working toward, and a student chasing 5** does not need Level 2 restated.
+ * Returns null when fewer than two sittings exist, because an average of one
+ * year is just that year wearing a longer label.
+ */
+export function recentBoundaries(code, { years = 5 } = {}) {
+  const subject = cutoffFor(code);
+  const all = subject?.byYear;
+  if (!all) return null;
+
+  const sittings = Object.keys(all)
+    .filter((y) => all[y]?.percent)
+    .sort()
+    .slice(-years);
+  if (sittings.length < 2) return null;
+
+  const mean = {};
+  for (const grade of ['4', '5', '5*', '5**']) {
+    const values = sittings
+      .map((y) => Number(all[y].percent[grade]))
+      .filter((v) => Number.isFinite(v) && v > 0 && v < 100);
+    if (values.length) {
+      mean[grade] = Math.round((values.reduce((a, v) => a + v, 0) / values.length) * 10) / 10;
+    }
+  }
+  if (!Object.keys(mean).length) return null;
+
+  return { mean, from: sittings[0], to: sittings[sittings.length - 1], count: sittings.length };
 }
 
 /**
