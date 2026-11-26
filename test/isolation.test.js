@@ -733,6 +733,47 @@ await test('CSD cannot carry grade bands', async () => {
   assert.equal(res.data.subjects.find((s) => s.id === csd.id).gradeBands, null, 'CSD has attainment, not levels');
 });
 
+await test('saving an attempt with a stale id writes the cell instead of failing', async () => {
+  const me = await callJson('/me', { cookie: alice });
+  const eng = me.data.subjects.find((s) => s.code === 'ENG');
+
+  // The id the browser holds is no longer in the collection.
+  const stale = await callJson('/papers/0123456789abcdef01234567', {
+    method: 'PATCH',
+    cookie: alice,
+    body: { subjectId: eng.id, year: 2022, paper: 'P2', score: 71, maxScore: 100 }
+  });
+  assert.equal(stale.status, 200, 'a stale id must not lose the attempt');
+
+  const after = await callJson('/me', { cookie: alice });
+  const saved = after.data.papers.find((p) => p.subjectId === eng.id && p.year === 2022 && p.paper === 'P2');
+  assert.ok(saved, 'the attempt should exist under its real cell');
+  assert.equal(saved.score, 71);
+
+  // And saving the same cell again updates rather than duplicating.
+  const again = await callJson(`/papers/${saved.id}`, {
+    method: 'PATCH',
+    cookie: alice,
+    body: { subjectId: eng.id, year: 2022, paper: 'P2', score: 80, maxScore: 100 }
+  });
+  assert.equal(again.status, 200);
+  const recount = await callJson('/me', { cookie: alice });
+  const same = recount.data.papers.filter((p) => p.subjectId === eng.id && p.year === 2022 && p.paper === 'P2');
+  assert.equal(same.length, 1, 'one cell, one row');
+  assert.equal(same[0].score, 80);
+});
+
+await test('a stale id still cannot be used to write into someone else’s subject', async () => {
+  const aliceMe = await callJson('/me', { cookie: alice });
+  const aliceMath = aliceMe.data.subjects.find((s) => s.code === 'MATH');
+  const res = await callJson('/papers/0123456789abcdef01234567', {
+    method: 'PATCH',
+    cookie: bob,
+    body: { subjectId: aliceMath.id, year: 2022, paper: 'P1', score: 99, maxScore: 100 }
+  });
+  assert.equal(res.status, 404, 'the recovery path must not bypass ownership');
+});
+
 await test('deleting an account removes its records', async () => {
   await callJson('/account', { method: 'DELETE', cookie: alice });
   const after = await callJson('/me', { cookie: alice });

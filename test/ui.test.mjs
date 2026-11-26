@@ -131,6 +131,14 @@ function serve(path, method, body) {
     db.papers.push({ id: `p${++seq}`, ...body, attemptedAt: new Date().toISOString() });
     return [201, workspace()];
   }
+  const paperPatch = String(path).match(/^papers\/([\w-]+)$/);
+  if (paperPatch && method === 'PATCH') {
+    const row = db.papers.find((p) => p.id === paperPatch[1]);
+    // Mirrors the real server: an unknown id is reported as not found.
+    if (!row) return [404, { error: 'Paper log not found.' }];
+    Object.assign(row, body);
+    return [200, workspace()];
+  }
   if (path === 'logs' && method === 'POST') {
     db.logs.push({ id: `l${++seq}`, ...body });
     return [201, workspace()];
@@ -540,6 +548,57 @@ check('the logged mock appears under Other papers', () => {
   if (!text.includes('Other school mock')) throw new Error('its kind is not shown');
   const cells = window.document.querySelectorAll('.matrix .cell:not(.f-empty)');
   if (cells.length) throw new Error('the mock should not fill a matrix cell');
+});
+
+/* --- A stale paper id must not lose the attempt --------------------------- */
+
+app.navigate('papers');
+await tick();
+document.querySelector('[data-act="pick-subject"][data-id="s2"]').dispatchEvent(
+  new window.MouseEvent('click', { bubbles: true })
+);
+await tick();
+
+// Seed a row the way the matrix would, then let the dialog edit it.
+db.papers.push({
+  id: 'p-stale',
+  subjectId: 's2',
+  year: 2021,
+  paper: 'P2',
+  score: 60,
+  maxScore: 100,
+  percentage: 60,
+  estimatedLevel: 4,
+  attainment: null
+});
+await app.boot();
+await tick();
+document.querySelector('[data-act="pick-subject"][data-id="s2"]')?.dispatchEvent(
+  new window.MouseEvent('click', { bubbles: true })
+);
+await tick();
+
+document.querySelector('[data-act="edit-paper"][data-id="p-stale"]').dispatchEvent(
+  new window.MouseEvent('click', { bubbles: true })
+);
+await tick();
+
+// The row vanished between opening the dialog and saving it.
+db.papers = db.papers.filter((p) => p.id !== 'p-stale');
+
+modal().querySelector('#pf-score').value = '82';
+modal().querySelector('#paper-form').dispatchEvent(
+  new window.Event('submit', { bubbles: true, cancelable: true })
+);
+await tick();
+await tick();
+await tick();
+
+check('a save with a stale id is retried as a create, not lost', () => {
+  if (modal()) throw new Error('the dialog stayed open, so the save failed');
+  const row = db.papers.find((p) => p.subjectId === 's2' && p.year === 2021 && p.paper === 'P2');
+  if (!row) throw new Error('the attempt was thrown away');
+  if (row.score !== 82) throw new Error(`score saved as ${row.score}`);
 });
 
 /* --- Paper presets ------------------------------------------------------- */

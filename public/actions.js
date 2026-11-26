@@ -553,9 +553,20 @@ function openPaperModal({ subjectId, year, paper, paper: paperRecord } = {}) {
           notes: dialog.querySelector('#pf-notes').value
         };
         try {
-          const data = existing
-            ? await api(`/papers/${existing.id}`, { method: 'PATCH', body })
-            : await api('/papers', { method: 'POST', body });
+          let data;
+          if (existing) {
+            try {
+              data = await api(`/papers/${existing.id}`, { method: 'PATCH', body });
+            } catch (err) {
+              // A stale record (deleted elsewhere, or the database rebuilt)
+              // must not throw the attempt away. The cell is the real identity,
+              // so re-send it as a create and let the unique index upsert it.
+              if (err.status !== 404) throw err;
+              data = await api('/papers', { method: 'POST', body });
+            }
+          } else {
+            data = await api('/papers', { method: 'POST', body });
+          }
           closeModal();
           state.paperSubjectId = body.subjectId;
           await refresh(data);

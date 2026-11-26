@@ -252,67 +252,83 @@ export async function handleApi(request, path, injectedStore) {
 
     /* ----------------------------- past papers ----------------------------- */
 
-    if (path === '/papers' && method === 'POST') {
+    /**
+     * Shared validation for logging a past paper, used by POST and by the
+     * recovery path of PATCH. Returns `{ error, status }` or `{ input }`.
+     */
+    const validateAttempt = async (body) => {
       const subject = await store.ownedSubject(userId, text(body.subjectId, 40));
-      if (!subject) return fail('Pick one of your own subjects.', 403);
+      if (!subject) return { error: 'Pick one of your own subjects.', status: 403 };
 
       // CSD is graded Attained / Unattained and was first examined in 2024.
       const csd = usesAttainment(subject);
       const earliest = csd ? CSD_FIRST_YEAR : 2012;
       const year = Math.round(Number(body.year));
       if (!(year >= earliest && year <= 2035)) {
-        return fail(`Year must be between ${earliest} and 2035 for this subject.`);
+        return { error: `Year must be between ${earliest} and 2035 for this subject.` };
       }
       const paper = text(body.paper, 40);
-      if (!paper) return fail('Choose a paper.');
-      if (csd && paper !== 'P1') return fail('CSD has a single paper: Paper 1.');
+      if (!paper) return { error: 'Choose a paper.' };
+      if (csd && paper !== 'P1') return { error: 'CSD has a single paper: Paper 1.' };
       if (!csd && paperRetired(subject.code, year, paper)) {
-        return fail(
-          `Chinese has no ${paper} from 2024 onwards — Papers 3 and 4 were abolished in the 2024 reform. Use the year you sat it, or log it as an Other paper.`
-        );
+        return {
+          error: `Chinese has no ${paper} from 2024 onwards — Papers 3 and 4 were abolished in the 2024 reform. Use the year you sat it, or log it as an Other paper.`
+        };
       }
 
       const score = numOrNull(body.score);
       const maxScore = numOrNull(body.maxScore);
-      if (score !== null && score < 0) return fail('Scores cannot be negative.');
-      if (maxScore !== null && maxScore <= 0) return fail('Total marks must be greater than zero.');
+      if (score !== null && score < 0) return { error: 'Scores cannot be negative.' };
+      if (maxScore !== null && maxScore <= 0) return { error: 'Total marks must be greater than zero.' };
 
       const marked = attainment(body.attainment);
       if (body.attainment !== undefined && body.attainment !== null && body.attainment !== '' && !marked) {
-        return fail('Choose Attained or Not attained.');
+        return { error: 'Choose Attained or Not attained.' };
       }
 
-      await store.savePaper(userId, {
-        subjectId: text(body.subjectId, 40),
-        year,
-        paper,
-        score,
-        maxScore,
-        percentage: percentageOf(score, maxScore, body.percentage),
-        // Levels never apply to CSD, and attainment never applies to a levelled subject.
-        estimatedLevel: csd ? null : level(body.estimatedLevel),
-        attainment: csd ? marked : null,
-        notes: text(body.notes, LIMITS.text)
-      });
+      return {
+        input: {
+          subjectId: text(body.subjectId, 40),
+          year,
+          paper,
+          score,
+          maxScore,
+          percentage: percentageOf(score, maxScore, body.percentage),
+          // Levels never apply to CSD, attainment never applies to a levelled subject.
+          estimatedLevel: csd ? null : level(body.estimatedLevel),
+          attainment: csd ? marked : null,
+          notes: text(body.notes, LIMITS.text)
+        }
+      };
+    };
+
+    if (path === '/papers' && method === 'POST') {
+      const checked = await validateAttempt(body);
+      if (checked.error) return fail(checked.error, checked.status || 400);
+      await store.savePaper(userId, checked.input);
       return json(await store.loadWorkspace(auth.user), 201);
     }
 
     const paperMatch = path.match(/^\/papers\/([\w-]+)$/);
     if (paperMatch && method === 'PATCH') {
-      const score = numOrNull(body.score);
-      const maxScore = numOrNull(body.maxScore);
-      const marked = attainment(body.attainment);
-      if (body.attainment !== undefined && body.attainment !== null && body.attainment !== '' && !marked) {
-        return fail('Choose Attained or Not attained.');
-      }      const ok = await store.patchPaper(userId, paperMatch[1], {
-        score,
-        maxScore,
-        percentage: percentageOf(score, maxScore, body.percentage),
+      const ok = await store.patchPaper(userId, paperMatch[1], {
+        score: numOrNull(body.score),
+        maxScore: numOrNull(body.maxScore),
+        percentage: percentageOf(numOrNull(body.score), numOrNull(body.maxScore), body.percentage),
         estimatedLevel: level(body.estimatedLevel),
-        attainment: marked,
+        attainment: attainment(body.attainment),
         notes: text(body.notes, LIMITS.text)
       });
-      if (!ok) return fail('Paper log not found.', 404);
+
+      if (ok) return json(await store.loadWorkspace(auth.user));
+
+      // The id can be stale: the row was replaced by the matrix upsert, removed
+      // in another tab, or the database was rebuilt. The dialog always sends
+      // the cell it is editing, so write that cell instead of losing the save.
+      // A foreign id still fails, because its subject is not owned by the caller.
+      const checked = await validateAttempt(body);
+      if (checked.error) return fail('Paper log not found.', 404);
+      await store.savePaper(userId, checked.input);
       return json(await store.loadWorkspace(auth.user));
     }
 
