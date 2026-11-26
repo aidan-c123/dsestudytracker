@@ -131,7 +131,10 @@ export const hooks = { renderView() {}, renderApp() {}, syncNav() {}, afterAuth(
 /* ----------------------------------- api ---------------------------------- */
 
 export async function api(path, { method = 'GET', body } = {}) {
-  const res = await fetch(`/api${path}`, {
+  // Single endpoint: the route travels in `__p` because plain Vercel `api/`
+  // folders don't support bracket catch-all routes.
+  const route = String(path || '/').replace(/^\/+/, '') || 'health';
+  const res = await fetch(`/api?__p=${encodeURIComponent(route)}`, {
     method,
     credentials: 'same-origin',
     headers: body ? { 'content-type': 'application/json' } : {},

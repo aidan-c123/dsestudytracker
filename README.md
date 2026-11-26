@@ -5,11 +5,7 @@ paper matrix, a focus timer that logs itself, SBA deadlines, target vs.
 predicted levels, and a live countdown to the written papers.
 
 - **Frontend:** plain HTML, CSS and ES modules — no build step, no framework.
-<<<<<<< HEAD
 - **API:** one Vercel Node function (`api/index.js`) sharing a router at
-=======
-- **API:** one Vercel Node function (`api/[...path].js`) sharing a router at
->>>>>>> main
   `server/routes.js`.
 - **Database:** MongoDB Atlas free tier (M0, 512 MB, no card).
 - **Hosting:** Vercel Hobby (free).
@@ -21,11 +17,7 @@ Cost at this scale is **$0/month** for both.
 ## What is in the box
 
 ```
-<<<<<<< HEAD
 api/index.js         Vercel function; adapts Web or Node requests to the router
-=======
-api/[...path].js     Vercel function; adapts Web or Node requests to the router
->>>>>>> main
 server/routes.js     every endpoint, validation and status code
 server/store.js      MongoDB queries, all scoped by userId
 server/db.js         cached client + index creation
@@ -103,25 +95,21 @@ git commit -m "Desk No. 4 — HKDSE study desk"
 
 ### 4. Deploy on Vercel
 
-<<<<<<< HEAD
-The API is a single function at `api/index.js`, reached through a rewrite in
-`vercel.json` (`/api/(.*)` → `/api?__p=$1`). This avoids bracket-named
-catch-all routes, which are unreliable in a non-framework `api/` directory.
+The API is one function at `api/index.js`, served at `/api`. The browser sends
+the route in a query string (`/api?__p=me`), so the project does not depend on
+bracket-named catch-all routes or on `vercel.json` rewrites. `vercel.json`
+contains only `outputDirectory`, which keeps it valid.
 
 **Do not use Vercel Drop for this project.** A drag-and-drop upload serves the
-files as a static site only, so `/api/*` is never registered and everything
-returns 404. (Verified: the same code returns `401 {"error":"Not signed in."}`
-and `200 {"ok":true,…}` when the function is actually mounted.)
+files as a static site only, so `/api` is never registered and everything
+returns 404.
 
 **Option A — GitHub import**
 
-=======
->>>>>>> main
 1. Push the repository to GitHub.
 2. [vercel.com/new](https://vercel.com/new) → import the repo.
 3. Framework preset: **Other**. Build command: leave empty. Output directory:
-   `public` (already set in `vercel.json`).
-<<<<<<< HEAD
+   `public`.
 4. **Settings → Environment Variables** → add `MONGODB_URI` for Production,
    Preview and Development. Optionally add `MONGODB_DB` (defaults to
    `hkdse_desk`).
@@ -146,7 +134,7 @@ The project URL stays the same.
 
 ### 5. Check the live site
 
-1. Open `https://YOUR-PROJECT.vercel.app/api/health`. It should return
+1. Open `https://YOUR-PROJECT.vercel.app/api`. It should return
    `{"ok":true,"function":"running","database":"configured"}`.
    - A 404 means the API function was not deployed — check that the `api/`
      folder is at the repository root.
@@ -160,26 +148,6 @@ The project URL stays the same.
 If a request fails with *"Something went wrong on the server"*, open the Vercel
 deployment's **Functions → Logs**. Atlas connection failures, IP allow-list
 problems and a wrong password all appear there.
-=======
-4. **Settings → Environment Variables** → add
-   `MONGODB_URI` for Production, Preview and Development. Optionally add
-   `MONGODB_DB` (defaults to `hkdse_desk`).
-5. Deploy.
-
-No GitHub? Run `npx vercel --prod` from the project folder and answer the
-prompts; the same environment variable must be set in the dashboard.
-
-### 5. Check the live site
-
-1. Open the deployment URL.
-2. Create an account, and save the recovery code shown once.
-3. Log one past paper and run a short focus block; both should survive a reload.
-4. Reload in a private window and sign in — the same records should appear.
-
-If a request fails with *"The database is not configured yet"*, `MONGODB_URI`
-is missing from the environment the deployment is using. Add it, then redeploy
-so the function picks it up.
->>>>>>> main
 
 ---
 

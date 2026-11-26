@@ -52,7 +52,6 @@ export async function handleApi(request, path, injectedStore) {
   }
 
   try {
-<<<<<<< HEAD
     /* -------------------------------- health ------------------------------- */
 
     if (path === '/health' && method === 'GET') {
@@ -66,8 +65,6 @@ export async function handleApi(request, path, injectedStore) {
       });
     }
 
-=======
->>>>>>> main
     /* ------------------------------- public -------------------------------- */
 
     if (path === '/auth/register' && method === 'POST') {
