@@ -83,9 +83,10 @@ await test('a 5* mark lands on 5*, not 5', () => {
   assert.equal(lib.levelFromPercentage(71, { code: 'CHIN' }), 7);
 });
 
-await test('the five-year list reaches 4 through 5** and rises', () => {
+await test('the five-year list covers 4 through 5** and climbs with the grade', () => {
   const recent = cutoffs.recentBoundaries('CHIN');
   assert.ok(recent, 'Chinese has enough sittings');
+  // The data is stored in grade order; only the on-screen list is reversed.
   const grades = ['4', '5', '5*', '5**'];
   for (const g of grades) assert.ok(Number.isFinite(recent.mean[g]), `5** row missing ${g}`);
   for (let i = 1; i < grades.length; i += 1) {

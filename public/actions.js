@@ -5,7 +5,7 @@
 import {
   $, $$, esc, icon, state, api, refresh, hooks, toast, openModal, closeModal,
   applyTheme, toggleTheme, submitting, errorText, subjectById, subjectPrediction, papersOf, papersFor,
-  papersForYear, matrixPapersFor, OTHER_SOURCES, BAND_LEVELS, bandsFor, bandsForYear, resetBandCache,
+  papersForYear, matrixPapersFor, OTHER_SOURCES, BAND_LEVELS, bandsFor, bandsForYear, bandsForPaper, resetBandCache,
   levelFromPercentage, levelFromBands, nextBand, pct, fmtMinutes, minutesBetween,
   lvlLabel, lvlChip, fmtDate, toLocalInput, daysUntil, subjectDsePct,
   usesAttainment, CSD_CODE, CSD_FIRST_YEAR, yearsFor, otherSourceLabel
@@ -717,6 +717,11 @@ function openPaperModal({ subjectId, year, paper, record } = {}) {
       // script is not judged by the latest sitting's cut-offs. Regrading on
       // every keystroke wins over an edited attempt's stored level, which
       // would otherwise keep quoting the bands that applied when it was saved.
+      //
+      // Where the source publishes a boundary for this paper, that is the one
+      // to use. Chinese Paper 1 and Paper 2 are marked out of different totals
+      // and carry very different boundaries, so a Paper 1 script graded on the
+      // subject-wide blend would read several percent too harshly.
       const grade = (p) => {
         if (!Number.isFinite(p)) return;
         const subject = subjectById(subjectField.value);
@@ -724,7 +729,7 @@ function openPaperModal({ subjectId, year, paper, record } = {}) {
           attainField.value = p >= 50 ? 'attained' : 'unattained';
           return;
         }
-        const bands = bandsForYear(subject, Number(yearField.value));
+        const bands = bandsForPaper(subject, paperField.value, Number(yearField.value));
         const level = levelFromBands(p, bands);
         if (level !== null) levelField.value = String(level);
       };
@@ -1247,7 +1252,7 @@ function openSubjectModal(subject = null) {
         <div class="field" id="sj-bands-field">
           <label>Grade bands <span class="muted">(% of marks needed)</span></label>
           <div class="band-grid" id="sj-bands">
-            ${BAND_LEVELS.map(
+            ${[...BAND_LEVELS].reverse().map(
               (l) => `<label class="band-cell">
                 <span>${lvlLabel(l)}</span>
                 <input type="number" min="1" max="99" step="1" data-band="${l}" value="${bands[l]}" aria-label="${lvlLabel(l)} from percentage" />

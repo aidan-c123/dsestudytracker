@@ -594,26 +594,54 @@ document.querySelector('[data-act="pick-subject"][data-id="s1"]')?.dispatchEvent
 );
 await tick();
 
-check('Chinese shows real five-year boundaries', () => {
+check('Chinese shows a real boundary line for each paper', () => {
   const note = window.document.querySelector('.cut-note');
   if (!note) throw new Error('no boundary strip for Chinese');
-  const items = [...note.querySelectorAll('.cut-item')].map((li) => li.textContent.replace(/\s+/g, ' ').trim());
-  if (items.length !== 4) throw new Error(`expected 4 grades, got ${items.length}: ${items.join(' | ')}`);
-  const head = note.querySelector('.cut-head').textContent;
-  if (!head.includes('2022')) throw new Error(`no year span: ${head}`);
-  if (!head.includes('CHIN')) throw new Error(`the subject code is not named: ${head}`);
+  const blocks = [...note.querySelectorAll('.cut-sub')];
+  if (blocks.length !== 2) throw new Error(`expected Paper 1 and Paper 2, got ${blocks.length}`);
+  const heads = blocks.map((b) => b.querySelector('.cut-subhead').textContent.replace(/\s+/g, ' ').trim());
+  if (!heads[0].startsWith('P1')) throw new Error(`the first block is ${heads[0]}`);
+  if (!heads[1].startsWith('P2')) throw new Error(`the second block is ${heads[1]}`);
+  for (const block of blocks) {
+    const items = [...block.querySelectorAll('.cut-item')];
+    if (items.length !== 4) throw new Error(`${block.textContent.trim()} has ${items.length} grades`);
+  }
   if (!note.textContent.includes('DSE00')) throw new Error('the source is not credited');
+  if (!/per paper/i.test(note.textContent)) throw new Error('it does not say these are per paper');
 });
 
-check('the strip reads 4 → 5 → 5* → 5** with rising numbers', () => {
+check('Paper 1 and Paper 2 show different boundaries, as the source does', () => {
+  // Chinese is the case that exposed the bug: grading everything against one
+  // subject-wide blend made Paper 1 look far harder than it is.
+  const blocks = [...window.document.querySelectorAll('.cut-note .cut-sub')];
+  const top = (block) =>
+    Number(block.querySelector('.cut-item .cut-pct').textContent.replace('%', ''));
+  const p1 = top(blocks[0]);
+  const p2 = top(blocks[1]);
+  if (!(p1 > 0 && p2 > 0)) throw new Error('missing figures');
+  if (p1 === p2) throw new Error(`both papers show ${p1}%, so they are not per-paper figures`);
+  // Paper 1's 5** sits near 62%, not the 70% subject-wide blend and certainly
+  // not the generic 85% that appeared when the data never loaded.
+  if (p1 > 68) throw new Error(`Paper 1 5** should be around 62%, got ${p1}%`);
+  if (p1 < 55) throw new Error(`Paper 1 5** looks too low: ${p1}%`);
+  if (p2 > 76) throw new Error(`Paper 2 5** should be around 70%, got ${p2}%`);
+});
+
+check('the strip reads 5** → 5* → 5 → 4, highest grade first', () => {
   const items = [...window.document.querySelectorAll('.cut-note .cut-item')];
   const grades = items.map((li) => li.querySelector('.cut-lvl').textContent.trim());
-  if (grades.join(',') !== '4,5,5*,5**') throw new Error(`wrong order: ${grades.join(',')}`);
+  if (grades.join(',') !== '5**,5*,5,4,5**,5*,5,4') throw new Error(`wrong order: ${grades.join(',')}`);
   const values = items.map((li) => Number(li.querySelector('.cut-pct').textContent.replace('%', '')));
   if (values.some((v) => !Number.isFinite(v) || v <= 0 || v >= 100)) throw new Error(`bad values: ${values}`);
-  if (values.some((v, i) => i && v <= values[i - 1])) throw new Error(`not ascending: ${values.join(',')}`);
+  // Each paper's row runs highest grade to lowest, so the marks fall left to
+  // right within that row.
+  for (let i = 0; i < values.length; i += 4) {
+    const row = values.slice(i, i + 4);
+    if (row.some((v, j) => j && v >= row[j - 1])) throw new Error(`row not descending: ${row.join(',')}`);
+  }
   const starred = items.filter((li) => li.classList.contains('is-star')).length;
-  if (starred !== 2) throw new Error('5* and 5** should be the two marked columns');
+  if (starred !== 4) throw new Error('each paper needs its 5* and 5** marked');
+  if (!items[0].classList.contains('is-star')) throw new Error('5** should be the first column');
 });
 
 /* A subject with no published rows must still show the strip, clearly labelled
@@ -668,7 +696,39 @@ check('a tuned subject shows the student’s own numbers', () => {
   const values = [...note.querySelectorAll('.cut-pct')].map((el) =>
     Number(el.textContent.replace('%', ''))
   );
-  if (values.join(',') !== '38,48,58,68') throw new Error(`expected the student's bands, got ${values}`);
+  if (values.join(',') !== '68,58,48,38') throw new Error(`expected the student's bands, got ${values}`);
+});
+
+/* --- A paper is graded on its own boundaries, not the subject blend ------- */
+
+check('Chinese Paper 1 is graded on Paper 1 boundaries', () => {
+  // Paper 1's boundaries sit several marks below the subject-wide blend: its
+  // 5** is near 62% against roughly 70% for the whole subject. A mark between
+  // the two must read differently depending on which paper it was.
+  const chin = { code: 'CHIN' };
+  const p1 = lib.bandsForPaper(chin, 'P1', 2026);
+  const p2 = lib.bandsForPaper(chin, 'P2', 2026);
+  if (p1[7] >= p2[7]) throw new Error(`P1 5** (${p1[7]}) should be below P2 5** (${p2[7]})`);
+  if (p1[7] > 68) throw new Error(`P1 5** should be around 62%, got ${p1[7]}%`);
+  if (p1[7] < 55) throw new Error(`P1 5** looks too low: ${p1[7]}%`);
+  // 60% clears Paper 1's 5* but not Paper 2's.
+  if (lib.levelFromBands(60, p1) < 6) throw new Error('60% should reach at least 5* on Paper 1');
+  if (lib.levelFromBands(60, p2) >= 6) throw new Error('60% must not reach 5* on Paper 2');
+});
+
+check('a subject with no per-paper rows grades exactly as before', () => {
+  const geog = { code: 'GEOG' };
+  const viaPaper = lib.bandsForPaper(geog, 'P1', 2026);
+  const subjectWide = lib.bandsForYear(geog, 2026);
+  if (JSON.stringify(viaPaper) !== JSON.stringify(subjectWide)) {
+    throw new Error('a paper-less subject changed bands');
+  }
+});
+
+check('a student’s own bands still win over per-paper rows', () => {
+  const tuned = { code: 'CHIN', gradeBands: { 2: 20, 3: 30, 4: 40, 5: 50, 6: 60, 7: 70 } };
+  const bands = lib.bandsForPaper(tuned, 'P1', 2026);
+  if (bands[7] !== 70) throw new Error(`expected the student's 70%, got ${bands[7]}%`);
 });
 
 /* --- Logging a session by start and end time, or by hours and minutes ----- */
@@ -798,6 +858,26 @@ modal()?.querySelector('[data-close]')?.dispatchEvent(
   new window.MouseEvent('click', { bubbles: true })
 );
 await tick();
+
+/* The editor lists the same four grades in the same order as the strip, so the
+   two screens cannot disagree about which way the numbers run. */
+check('the band editor lists grades highest first, matching the strip', () => {
+  app.navigate('papers');
+  return tick().then(() => {
+    document.querySelector('[data-act="edit-subject"][data-id="s1"]')?.dispatchEvent(
+      new window.MouseEvent('click', { bubbles: true })
+    );
+    return tick().then(() => {
+      const m = modal();
+      if (!m) throw new Error('the subject dialog did not open');
+      const labels = [...m.querySelectorAll('.band-cell span')].map((el) => el.textContent.trim());
+      if (labels.join(',') !== '5**,5*,5,4,3,2') {
+        throw new Error(`the editor reads ${labels.join(',')}`);
+      }
+      m.querySelector('[data-close]')?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+    });
+  });
+});
 
 /* --- Deleting a cell must not leave a duplicate behind -------------------- */
 

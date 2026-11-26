@@ -8,10 +8,90 @@ import {
   usesAttainment, attainmentChip, attainmentLabel, CSD_FIRST_YEAR, OTHER_SOURCES, otherSourceLabel,
   levelFromPercentage, nextBand, bandsFor, bandsOrigin
 } from '../lib.js';
-import { recentBoundaries, CUTOFF_SOURCE } from '../cutoffs.js';
+import { recentBoundaries, recentPaperBoundaries, CUTOFF_SOURCE } from '../cutoffs.js';
 
-/** The four boundaries a candidate is actually working toward, in order. */
-const GOAL_GRADES = ['4', '5', '5*', '5**'];
+/**
+ * The four boundaries a candidate is actually working toward, in order.
+ *
+ * Highest first, so the grade a student is chasing sits at the left edge and
+ * the list reads the way a result slip does: 5** down to 4. The marks
+ * therefore fall left to right, which is why nothing here assumes an
+ * ascending list.
+ */
+const GOAL_GRADES = ['5**', '5*', '5', '4'];
+
+/**
+ * Short names for the papers the source publishes separately, so the strip can
+ * say which paper a boundary belongs to. A bare "P1" is not much help on a
+ * screen that already uses P1 as a matrix column heading.
+ */
+const PAPER_TITLE = {
+  'P1': 'Reading',
+  'P2': 'Writing',
+  'P3': 'Listening & Integrated Skills',
+  'P4': 'Speaking'
+};
+
+/**
+ * One line of boundaries per paper, for the two subjects whose papers the
+ * source publishes separately.
+ *
+ * This is why Chinese used to look wrong. Its papers are marked out of
+ * different totals and carry genuinely different boundaries — a 5** on Paper 1
+ * sits near 62%, Paper 2 near 70% — so a single subject-wide blend cannot be
+ * right for either, and grading a Paper 1 script against it reads far too
+ * harshly. When the source has a row for the paper, show the paper's own
+ * numbers.
+ *
+ * Returns '' for subjects with no per-paper rows, so the caller can fall back
+ * to the single subject-wide strip.
+ */
+function paperRows(subject) {
+  const code = subject?.code;
+  if (!code) return '';
+  const bands = subject?.gradeBands;
+  if (bands && typeof bands === 'object' && Object.keys(bands).length) return '';
+
+  const papers = matrixPapersFor(subject).filter((p) => p !== 'SBA');
+  const rows = [];
+  for (const paper of papers) {
+    const recent = recentPaperBoundaries(code, paper);
+    if (!recent) continue;
+    const cells = GOAL_GRADES.filter((g) => Number.isFinite(recent.mean[g]))
+      .map(
+        (grade) => `<li class="cut-item${grade.startsWith('5*') ? ' is-star' : ''}">
+          <span class="cut-lvl">${grade}</span>
+          <span class="cut-pct">${Math.round(recent.mean[grade])}<i>%</i></span>
+        </li>`
+      )
+      .join('');
+    if (!cells) continue;
+    const name = PAPER_TITLE[paper] ? ` <span class="muted">${esc(PAPER_TITLE[paper])}</span>` : '';
+    const span =
+      recent.from && recent.to
+        ? ` <span class="muted">${esc(recent.from)}–${esc(recent.to)}</span>`
+        : '';
+    rows.push(`<div class="cut-sub">
+      <div class="cut-subhead"><b>${esc(paper)}</b>${name}${span}</div>
+      <ol class="cut-list">${cells}</ol>
+    </div>`);
+  }
+  if (!rows.length) return '';
+
+  return `<div class="cut-note">
+    <div class="cut-head">
+      <b>Grade boundaries</b>
+      <span class="muted">per paper · mean of the last five sittings</span>
+    </div>
+    ${rows.join('')}
+    <div class="cut-foot">
+      From <a href="${CUTOFF_SOURCE.url}" target="_blank" rel="noopener noreferrer">${esc(CUTOFF_SOURCE.name)}</a>,
+      as a share of each paper's own full marks. ${esc(code)} marks its papers separately, so each
+      paper is graded on its own boundaries. A boundary is the last mark that earned the
+      grade — not a promise about yours.
+    </div>
+  </div>`;
+}
 
 /**
  * Recent grade boundaries, as one horizontal line of figures.
@@ -22,12 +102,16 @@ const GOAL_GRADES = ['4', '5', '5*', '5**'];
  * taken as a percentage of that sitting's own full marks, which is the only
  * way to compare years with different paper lengths.
  *
- * Only 4 to 5** appear. A student chasing a starred grade does not need the
+ * The four figures run 5** on the left down to 4 on the right, which is the
+ * order a result slip uses. A student chasing a starred grade does not need the
  * Level 2 boundary restated on a page they visit every week, and four numbers
  * fit on one phone line where six do not.
  */
 function cutoffNote(subject) {
   if (!subject || usesAttainment(subject)) return '';
+  const perPaper = paperRows(subject);
+  if (perPaper) return perPaper;
+
   const rows = boundaryRows(subject);
   if (!rows) return '';
 

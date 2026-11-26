@@ -30,6 +30,7 @@ export const CUTOFF_SOURCE = {
 /** Populated once the JSON arrives; lookups before that return null. */
 let table = null;
 let loading = null;
+let attempted = false;
 
 const isBrowser = typeof document !== 'undefined' && typeof fetch === 'function';
 
@@ -50,15 +51,19 @@ export function loadCutoffs() {
       if (table) {
         // Let any rendered view respray its bands without a full reload.
         window.dispatchEvent(new CustomEvent('cutoffs:ready'));
+      } else {
+        window.dispatchEvent(new CustomEvent('cutoffs:failed'));
       }
       return table;
     })
     .catch(() => {
       table = null;
+      window.dispatchEvent(new CustomEvent('cutoffs:failed'));
       return null;
     })
     .finally(() => {
       loading = null;
+      attempted = true;
     });
 
   return loading;
@@ -111,6 +116,13 @@ function normalise(data) {
 
 export const cutoffsLoaded = () => Boolean(table);
 
+/**
+ * Whether the table was asked for and came back empty. A failed load is what
+ * used to make the generic 85% bands appear as though they were the real
+ * boundaries, so the UI needs a way to tell "no data" apart from "not yet".
+ */
+export const cutoffsUnavailable = () => attempted && !table;
+
 /** The raw record for a subject code, or null. */
 export function cutoffFor(code) {
   if (!table || !code) return null;
@@ -122,6 +134,74 @@ export function paperCutoffFor(code, paper) {
   const subject = cutoffFor(code);
   if (!subject?.papers) return null;
   return subject.papers[String(paper || '').toUpperCase()] || null;
+}
+
+/**
+ * The five-sitting mean for one paper, in the same shape as recentBoundaries.
+ *
+ * Chinese is the reason this exists. Its papers are marked out of very
+ * different totals and carry very different boundaries — a 5** on Paper 1
+ * (Reading) sits near 62% while Paper 2 (Writing) sits near 70% — so the
+ * whole-subject blend is the wrong number to show for either. English behaves
+ * the same way. Where the source publishes per-paper rows, a logged paper is
+ * graded against its own paper's boundaries; only subjects without them fall
+ * back to the subject-wide figures.
+ */
+export function recentPaperBoundaries(code, paper) {
+  const record = paperCutoffFor(code, paper);
+  if (!record?.percent) return null;
+  const mean = {};
+  for (const grade of ['4', '5', '5*', '5**']) {
+    const v = Number(record.percent[grade]);
+    if (Number.isFinite(v) && v > 0 && v < 100) mean[grade] = v;
+  }
+  if (!Object.keys(mean).length) return null;
+  const from = Number(record.recentFrom);
+  const to = Number(record.recentTo);
+  return {
+    mean,
+    from: record.recentFrom,
+    to: record.recentTo,
+    fullMarks: record.fullMarks,
+    count: Number.isFinite(from) && Number.isFinite(to) ? to - from + 1 : null
+  };
+}
+
+/**
+ * Bands for one paper of a subject, when the source publishes that paper.
+ * Returns null for subjects whose boundaries are only given subject-wide, so
+ * the caller falls back to the subject figures rather than inventing a split.
+ */
+export function paperBands(code, paper) {
+  const subject = cutoffFor(code);
+  if (!subject?.papers) return null;
+  const record = paperCutoffFor(code, paper);
+  if (!record?.percent) return null;
+  const bands = {};
+  let ok = false;
+  for (const level of [2, 3, 4, 5, 6, 7]) {
+    const raw = Number(record.percent[GRADE_KEY[level]]);
+    if (Number.isFinite(raw) && raw > 0 && raw < 100) {
+      bands[level] = Math.round(raw);
+      ok = true;
+    }
+  }
+  if (!ok) return null;
+  let previous = 0;
+  for (const level of [2, 3, 4, 5, 6, 7]) {
+    if (bands[level] === undefined) continue;
+    bands[level] = Math.max(bands[level], previous + 1);
+    previous = bands[level];
+  }
+  return bands;
+}
+
+/**
+ * The five-sitting mean for one paper of one sitting, in the same shape as
+ * recentBoundaries.
+ */
+export function recentPaperBoundariesForYear(code, paper, year) {
+  return recentPaperBoundaries(code, paper);
 }
 
 /**

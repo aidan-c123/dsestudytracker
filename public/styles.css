@@ -664,6 +664,22 @@ html[data-theme="dark"] select {
 .cut-foot { margin-top: 8px; font-size: 0.71rem; color: var(--muted); line-height: 1.55; }
 .cut-foot a { color: var(--accent); }
 
+/* One block per paper, used where the source publishes a boundary for each
+   paper separately. The paper label sits above its own row so the four figures
+   are never read as belonging to the whole subject. */
+.cut-sub { margin-top: 9px; }
+.cut-sub + .cut-sub { margin-top: 7px; }
+.cut-subhead {
+  display: flex; align-items: baseline; gap: 6px;
+  font-size: 0.73rem; color: var(--ink-soft); margin-bottom: 3px;
+}
+.cut-subhead b { font-size: 0.73rem; font-weight: 650; color: var(--ink); letter-spacing: 0.02em; }
+.cut-sub .cut-list { margin-top: 0; }
+@media (max-width: 640px) {
+  /* Listening & Integrated Skills is too long for a phone line beside P3. */
+  .cut-subhead .muted { font-size: 0.7rem; }
+}
+
 /* The prediction, fresh from the current bands. */
 .standing {
   display: flex; align-items: baseline; gap: 9px; flex-wrap: wrap;

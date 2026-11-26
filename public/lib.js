@@ -5,7 +5,7 @@
 export const $ = (sel, el = document) => el.querySelector(sel);
 export const $$ = (sel, el = document) => [...el.querySelectorAll(sel)];
 
-import { cutoffBands, cutoffBandsForYear } from './cutoffs.js';
+import { cutoffBands, cutoffBandsForYear, paperBands } from './cutoffs.js';
 
 export const esc = (v) =>
   String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -286,12 +286,40 @@ export function bandsForYear(subject, year) {
 }
 
 /**
+ * Bands for one paper of one subject.
+ *
+ * Chinese and English publish a boundary per paper, and those numbers differ
+ * a lot: a Chinese Paper 1 5** sits near 62% while Paper 2 sits near 70%.
+ * Grading a Paper 1 script against the whole-subject blend overstates it, so
+ * the paper's own boundaries win wherever the source publishes them. Subjects
+ * without per-paper rows fall back to their subject-wide bands unchanged.
+ */
+export function bandsForPaper(subject, paper, year = null) {
+  const custom = subject?.gradeBands;
+  if (custom && typeof custom === 'object' && Object.keys(custom).length) {
+    return bandsFor(subject);
+  }
+  const code = subject?.code;
+  if (!code || !paper) return bandsForYear(subject, year);
+  const own = paperBands(code, paper);
+  if (!own) return bandsForYear(subject, year);
+  const resolved = { ...DEFAULT_BANDS, ...own };
+  let previous = 0;
+  for (const level of [2, 3, 4, 5, 6, 7]) {
+    resolved[level] = Math.max(resolved[level], previous + 1);
+    previous = resolved[level];
+  }
+  return resolved;
+}
+
+/**
  * Which of the three layers a subject's bands came from, so the UI can say
  * where the numbers are from instead of implying they are official.
  */
-export function bandsOrigin(subject) {
+export function bandsOrigin(subject, paper = null) {
   const custom = subject?.gradeBands;
   if (custom && typeof custom === 'object' && Object.keys(custom).length) return 'tuned';
+  if (paper && subject?.code && paperBands(subject.code, paper)) return 'cutoff';
   if (subject?.code && cutoffBands(subject.code)) return 'cutoff';
   return 'default';
 }
