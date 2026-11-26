@@ -1,0 +1,18 @@
+{
+  "name": "desk-no-4",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "HKDSE study desk — past paper matrix, focus timer, SBA deadlines and exam countdown.",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "mongodb": "^6.10.0"
+  },
+  "scripts": {
+    "dev": "vercel dev",
+    "check": "node --check server/routes.js && node --check server/store.js && node --check server/db.js",
+    "test": "node test/isolation.test.js"
+  }
+}
