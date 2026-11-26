@@ -47,6 +47,7 @@ window.matchMedia = (q) => ({
 globalThis.matchMedia = window.matchMedia;
 window.scrollTo = () => {};
 window.confirm = () => true;
+globalThis.confirm = window.confirm;
 globalThis.history = window.history;
 globalThis.location = window.location;
 globalThis.MouseEvent = window.MouseEvent;
@@ -149,6 +150,16 @@ function serve(path, method, body) {
     return [201, workspace()];
   }
   if (path === 'other-papers' && method === 'PATCH') {
+    return [200, workspace()];
+  }
+  const paperDel = String(path).match(/^papers\/([\w-]+)$/);
+  if (paperDel && method === 'DELETE') {
+    const row = db.papers.find((p) => p.id === paperDel[1]);
+    if (!row) return [200, workspace()];
+    // The real store deletes the whole cell.
+    db.papers = db.papers.filter(
+      (p) => !(p.subjectId === row.subjectId && p.year === row.year && p.paper === row.paper)
+    );
     return [200, workspace()];
   }
   const otherDel = String(path).match(/^other-papers\/([\w-]+)$/);
@@ -548,6 +559,43 @@ check('the logged mock appears under Other papers', () => {
   if (!text.includes('Other school mock')) throw new Error('its kind is not shown');
   const cells = window.document.querySelectorAll('.matrix .cell:not(.f-empty)');
   if (cells.length) throw new Error('the mock should not fill a matrix cell');
+});
+
+/* --- Deleting a cell must not leave a duplicate behind -------------------- */
+
+// Two rows for one cell, as an older database could hold.
+db.papers.push(
+  { id: 'dup-a', subjectId: 's1', year: 2020, paper: 'P1', score: 55, maxScore: 100, percentage: 55, estimatedLevel: 4, attainment: null, attemptedAt: '2026-01-01T00:00:00.000Z' },
+  { id: 'dup-b', subjectId: 's1', year: 2020, paper: 'P1', score: 91, maxScore: 100, percentage: 91, estimatedLevel: 7, attainment: null, attemptedAt: '2026-02-01T00:00:00.000Z' }
+);
+await app.boot();
+await tick();
+document.querySelector('[data-act="pick-subject"][data-id="s1"]')?.dispatchEvent(
+  new window.MouseEvent('click', { bubbles: true })
+);
+await tick();
+
+check('a duplicated cell shows only the newest score', () => {
+  const rows = [...window.document.querySelectorAll('table.plain tbody tr')].filter((tr) =>
+    tr.textContent.includes('2020')
+  );
+  if (rows.length !== 1) throw new Error(`rendered ${rows.length} rows for one cell`);
+  if (!rows[0].textContent.includes('91/100')) {
+    throw new Error(`showing the wrong row: ${rows[0].textContent.trim()}`);
+  }
+});
+
+document.querySelector('[data-act="delete-cell"][data-year="2020"][data-paper="P1"]').dispatchEvent(
+  new window.MouseEvent('click', { bubbles: true })
+);
+await tick();
+await tick();
+
+check('deleting the cell removes every row, so the score stops showing', () => {
+  const left = db.papers.filter((p) => p.subjectId === 's1' && p.year === 2020 && p.paper === 'P1');
+  if (left.length) throw new Error(`${left.length} duplicate row(s) survived the delete`);
+  const text = window.document.querySelector('#view').textContent;
+  if (/91\/100/.test(text)) throw new Error('the deleted score is still on screen');
 });
 
 /* --- A stale paper id must not lose the attempt --------------------------- */

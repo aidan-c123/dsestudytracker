@@ -95,6 +95,24 @@ const HANDLERS = {
     toast('Attempt removed.');
   },
 
+  // Deleting from the matrix goes by cell, so a duplicate row cannot survive.
+  'delete-cell': async (el) => {
+    if (!confirm('Delete this paper attempt?')) return;
+    const subjectId = el.dataset.subject;
+    const year = Number(el.dataset.year);
+    const paper = el.dataset.paper;
+    const matches = state.data.papers.filter(
+      (p) => p.subjectId === subjectId && Number(p.year) === year && p.paper === paper
+    );
+    if (!matches.length) return;
+    let data;
+    for (const row of matches) {
+      data = await api(`/papers/${row.id}`, { method: 'DELETE' });
+    }
+    await refresh(data);
+    toast('Attempt removed.');
+  },
+
   'new-error': () => openErrorModal(),
   'delete-error': async (el) => {
     const data = await api(`/errors/${el.dataset.id}`, { method: 'DELETE' });

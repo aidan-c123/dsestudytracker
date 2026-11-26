@@ -25,7 +25,14 @@ export function renderPapers() {
   // Columns keep any paper already logged, so a pre-2024 Chinese Paper 3 stays
   // visible even though the reform retired it.
   const papers = matrixPapersFor(subject, logs);
-  const byCell = new Map(logs.map((p) => [`${p.year}-${p.paper}`, p]));
+  // One cell can briefly hold more than one row on an older database. Show the
+  // most recent, so the matrix always reflects the last thing saved.
+  const byCell = new Map();
+  for (const log of logs) {
+    const key = `${log.year}-${log.paper}`;
+    const seen = byCell.get(key);
+    if (!seen || String(log.attemptedAt || '') >= String(seen.attemptedAt || '')) byCell.set(key, log);
+  }
   const dseAvg = subjectDsePct(subject.id);
   const avg = subjectPct(subject.id);
   const best = logs.reduce((a, p) => Math.max(a, p.estimatedLevel || 0), 0);
@@ -33,7 +40,24 @@ export function renderPapers() {
   const attainPred = subjectAttainment(subject);
   const completion = Math.round((logs.length / (years.length * papers.length)) * 100);
 
-  const errors = state.data.errors.filter((e) => state.errorSubject === 'all' || e.subjectId === state.errorSubject);
+  const errors = state.data.errors.filter(
+    (e) => state.errorSubject === 'all' || e.subjectId === state.errorSubject
+  );
+
+  // One row per cell, newest row first. Duplicates can exist on an older
+  // database, so the list must not show the same cell twice.
+  const newestPerCell = (rows) => {
+    const map = new Map();
+    for (const row of rows) {
+      const key = `${row.year}-${row.paper}`;
+      const seen = map.get(key);
+      if (!seen || String(row.attemptedAt || '') >= String(seen.attemptedAt || '')) map.set(key, row);
+    }
+    return [...map.values()].sort(
+      (a, b) => b.year - a.year || String(a.paper).localeCompare(String(b.paper))
+    );
+  };
+  const recentLogs = newestPerCell(logs).slice(0, 12);
 
   return `
     ${topbar(
@@ -207,9 +231,7 @@ export function renderPapers() {
             ? `<div class="table-wrap"><table class="plain">
                 <thead><tr><th>Paper</th><th>Score</th><th>%</th><th>${csd ? 'Result' : 'Level'}</th><th></th></tr></thead>
                 <tbody>
-                  ${[...logs]
-                    .sort((a, b) => b.year - a.year || a.paper.localeCompare(b.paper))
-                    .slice(0, 12)
+                  ${recentLogs
                     .map(
                       (p) => `<tr>
                         <td><b>${esc(p.year)}</b> ${esc(p.paper)}</td>
@@ -218,7 +240,9 @@ export function renderPapers() {
                         <td>${csd ? attainmentChip(p.attainment) : lvlChip(p.estimatedLevel)}</td>
                         <td style="text-align:right;white-space:nowrap">
                           <button class="icon-btn" data-act="edit-paper" data-id="${p.id}" aria-label="Edit ${p.year} ${p.paper}">${icon('edit')}</button>
-                          <button class="icon-btn" data-act="delete-paper" data-id="${p.id}" aria-label="Delete ${p.year} ${p.paper}">${icon('trash')}</button>
+                          <button class="icon-btn" data-act="delete-cell" data-subject="${subject.id}"
+                            data-year="${p.year}" data-paper="${p.paper}"
+                            aria-label="Delete ${p.year} ${p.paper}">${icon('trash')}</button>
                         </td>
                       </tr>`
                     )

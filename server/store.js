@@ -310,7 +310,17 @@ export async function removePaper(userId, paperId) {
   const db = await getDb();
   const _id = oid(paperId);
   if (!_id) return;
-  await db.collection('pastPapers').deleteOne({ _id, userId });
+  // Delete the whole cell, not just the row the browser knew about. Older
+  // databases can hold duplicate rows for one cell (created before the unique
+  // index existed), and deleting one would leave the score on screen.
+  const doc = await db.collection('pastPapers').findOne({ _id, userId });
+  if (!doc) return;
+  await db.collection('pastPapers').deleteMany({
+    userId,
+    subjectId: doc.subjectId,
+    year: doc.year,
+    paper: doc.paper
+  });
 }
 
 /* ------------------------------ other papers ------------------------------

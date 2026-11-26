@@ -159,7 +159,37 @@ function makeStore() {
       return true;
     },
     async removePaper(userId, paperId) {
-      if (findOwned('pastPapers', userId, paperId)) data.pastPapers.delete(paperId);
+      // Mirrors the real store: delete the whole cell, so duplicate rows from
+      // an older database cannot survive the delete.
+      const doc = findOwned('pastPapers', userId, paperId);
+      if (!doc) return;
+      for (const [key, row] of data.pastPapers) {
+        if (
+          row.userId === userId &&
+          row.subjectId === doc.subjectId &&
+          row.year === doc.year &&
+          row.paper === doc.paper
+        ) {
+          data.pastPapers.delete(key);
+        }
+      }
+    },
+    /** Test-only: plant a second row for one cell, as an unindexed DB could. */
+    seedDuplicatePaper(userId, subjectId, year, paper, docId, score, maxScore) {
+      data.pastPapers.set(docId, {
+        _id: docId,
+        userId,
+        subjectId,
+        year,
+        paper,
+        score,
+        maxScore,
+        percentage: Math.round((score / maxScore) * 1000) / 10,
+        estimatedLevel: null,
+        attainment: null,
+        notes: '',
+        attemptedAt: new Date()
+      });
     },
     async addLog(userId, input) {
       const doc = { _id: id('l'), userId, ...input };
@@ -256,6 +286,7 @@ console.log('\nStarShooter — API isolation tests\n');
 
 let alice;
 let bob;
+let aliceId;
 
 await test('registration creates a session and seeds four core subjects', async () => {
   const res = await callJson('/auth/register', {
@@ -269,6 +300,7 @@ await test('registration creates a session and seeds four core subjects', async 
 
   const me = await callJson('/me', { cookie: alice });
   assert.equal(me.status, 200);
+  aliceId = me.data.user.id;
   assert.equal(me.data.subjects.length, 4);
   assert.deepEqual(me.data.subjects.map((s) => s.code), ['CHIN', 'ENG', 'MATH', 'CSD']);
   assert.equal(me.data.user.email, 'alice@school.edu.hk');
@@ -772,6 +804,34 @@ await test('a stale id still cannot be used to write into someone else’s subje
     body: { subjectId: aliceMath.id, year: 2022, paper: 'P1', score: 99, maxScore: 100 }
   });
   assert.equal(res.status, 404, 'the recovery path must not bypass ownership');
+});
+
+await test('deleting a cell removes duplicate rows for that cell', async () => {
+  const me = await callJson('/me', { cookie: alice });
+  const phys = me.data.subjects.find((s) => s.code === 'PHYS') || me.data.subjects.find((s) => s.code === 'MATH');
+
+  // Reproduce a database written before the unique index existed: two rows for
+  // one matrix cell. The store allows the duplicate so this test is meaningful;
+  // on Atlas ensureIndexes() cleans these up.
+  await callJson('/papers', {
+    method: 'POST',
+    cookie: alice,
+    body: { subjectId: phys.id, year: 2020, paper: 'P1', score: 40, maxScore: 100 }
+  });
+  const staleId = `dup${Date.now()}`;
+  store.seedDuplicatePaper(aliceId, phys.id, 2020, 'P1', staleId, 40, 100);
+
+  const before = await callJson('/me', { cookie: alice });
+  const rows = before.data.papers.filter((p) => p.subjectId === phys.id && p.year === 2020 && p.paper === 'P1');
+  assert.equal(rows.length, 2, 'the duplicate should be reproduced');
+
+  // Delete using one of the two ids: the whole cell must go.
+  const del = await callJson(`/papers/${rows[0].id}`, { method: 'DELETE', cookie: alice });
+  assert.equal(del.status, 200);
+
+  const after = await callJson('/me', { cookie: alice });
+  const left = after.data.papers.filter((p) => p.subjectId === phys.id && p.year === 2020 && p.paper === 'P1');
+  assert.equal(left.length, 0, `the score survived because ${left.length} row(s) remained`);
 });
 
 await test('deleting an account removes its records', async () => {
