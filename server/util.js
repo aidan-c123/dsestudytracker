@@ -115,6 +115,30 @@ export function percentageOf(score, maxScore, fallback) {
 
 export const CORE_CODES = ['CHIN', 'ENG', 'MATH', 'CSD'];
 
+/**
+ * CSD (Citizenship and Social Development) replaced Liberal Studies in 2024.
+ * HKEAA reports it only as "Attained" or "Unattained" — there are no 1–5**
+ * levels, it has a single Paper 1 (2 hours, 100%), and it has no SBA.
+ */
+export const CSD_CODE = 'CSD';
+export const CSD_FIRST_YEAR = 2024;
+export const ATTAINMENT = {
+  attained: 'Attained',
+  unattained: 'Not attained'
+};
+
+/** True when a subject is graded attained/unattained rather than on levels. */
+export const usesAttainment = (subject) => String(subject?.code || '').toUpperCase() === CSD_CODE;
+
+export function attainment(value) {
+  const key = text(value, 20).toLowerCase();
+  if (key === 'attained' || key === 'attain' || key === 'pass') return 'attained';
+  if (key === 'unattained' || key === 'not-attained' || key === 'not attained' || key === 'fail') {
+    return 'unattained';
+  }
+  return null;
+}
+
 export const SUBJECT_CATALOG = {
   CHIN: { name: '中國語文', category: 'core' },
   ENG: { name: 'English Language', category: 'core' },

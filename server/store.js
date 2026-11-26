@@ -2,7 +2,7 @@ import { ObjectId } from 'mongodb';
 import { createHash } from 'node:crypto';
 import {
   randomToken, randomRecoveryCode, hashPassword,
-  SESSION_COOKIE, SESSION_SECONDS, readCookie, CORE_CODES, SUBJECT_CATALOG
+  SESSION_COOKIE, SESSION_SECONDS, readCookie, CORE_CODES, CSD_CODE, SUBJECT_CATALOG
 } from './util.js';
 import { getDb } from './db.js';
 
@@ -67,8 +67,10 @@ export async function seedSubjects(userId) {
     code,
     name: SUBJECT_CATALOG[code].name,
     category: 'core',
-    targetLevel: 4,
+    // CSD is reported as Attained / Unattained, so it has no level target.
+    targetLevel: code === CSD_CODE ? null : 4,
     predictedLevel: null,
+    attainment: null,
     examDate: null,
     sortOrder: i,
     createdAt: now
@@ -209,7 +211,7 @@ export async function ownedSubject(userId, subjectId) {
   return db.collection('subjects').findOne({ _id, userId });
 }
 
-export async function addSubject(userId, { code, name, category, targetLevel, predictedLevel, examDate }) {
+export async function addSubject(userId, { code, name, category, targetLevel, predictedLevel, attainment, examDate }) {
   const db = await getDb();
   const last = await db
     .collection('subjects')
@@ -223,8 +225,9 @@ export async function addSubject(userId, { code, name, category, targetLevel, pr
     code: code || '',
     name,
     category,
-    targetLevel: targetLevel ?? 4,
+    targetLevel: targetLevel ?? null,
     predictedLevel: predictedLevel ?? null,
+    attainment: attainment ?? null,
     examDate: examDate ?? null,
     sortOrder: (last?.sortOrder ?? 0) + 1,
     createdAt: new Date()
@@ -268,7 +271,8 @@ export async function savePaper(userId, input) {
       score: input.score,
       maxScore: input.maxScore,
       percentage: input.percentage,
-      estimatedLevel: input.estimatedLevel,
+      estimatedLevel: input.estimatedLevel ?? null,
+      attainment: input.attainment ?? null,
       notes: input.notes,
       attemptedAt: new Date()
     },

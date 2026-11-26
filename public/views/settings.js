@@ -2,7 +2,9 @@
    Settings: exam dates, goal, theme, subjects, account
    ============================================================ */
 
-import { esc, icon, state, topbar, fmtDate, initials } from '../lib.js';
+import {
+  esc, icon, state, topbar, fmtDate, initials, lvlLabel, usesAttainment, attainmentLabel
+} from '../lib.js';
 
 export function renderSettings() {
   const u = state.data.user;
@@ -69,7 +71,13 @@ export function renderSettings() {
                   <span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
                     ${esc(s.name)} <span class="muted">· ${esc(s.code || s.category)}</span>
                   </span>
-                  <span class="when">target ${s.targetLevel}</span>
+                  <span class="when">${
+                    usesAttainment(s)
+                      ? s.attainment
+                        ? attainmentLabel(s.attainment)
+                        : 'attainment'
+                      : `target ${lvlLabel(s.targetLevel)}`
+                  }</span>
                   <button class="icon-btn" data-act="edit-subject" data-id="${s.id}" aria-label="Edit ${esc(s.name)}">${icon('edit')}</button>
                 </div>`
               )

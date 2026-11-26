@@ -280,6 +280,128 @@ check('submitting the task saves it and closes the dialog', () => {
   if (!window.document.body.textContent.includes('practical report')) throw new Error('task not re-rendered');
 });
 
+/* --- CSD: attainment replaces levels everywhere --------------------------- */
+
+lib.state.data.subjects.push({
+  id: 's-csd',
+  code: 'CSD',
+  name: '公民與社會發展',
+  category: 'core',
+  targetLevel: null,
+  predictedLevel: null,
+  attainment: null,
+  examDate: null
+});
+
+app.navigate('papers');
+await tick();
+document.querySelector('[data-act="pick-subject"][data-id="s-csd"]').dispatchEvent(
+  new window.MouseEvent('click', { bubbles: true })
+);
+await tick();
+
+check('the CSD matrix lists only 2024–2026 and a single paper', () => {
+  const years = [...window.document.querySelectorAll('.matrix tbody th')].map((th) => Number(th.textContent));
+  if (years.length !== 3) throw new Error(`expected 3 years, got ${years.join(',')}`);
+  if (Math.min(...years) !== 2024) throw new Error('CSD should start in 2024');
+  const heads = [...window.document.querySelectorAll('.matrix thead th')].map((th) => th.textContent.trim());
+  if (!heads.includes('P1')) throw new Error('P1 missing');
+  if (heads.includes('P2')) throw new Error('CSD should not offer P2');
+});
+
+check('the CSD page shows attainment, not a target level', () => {
+  const text = window.document.body.textContent;
+  if (!text.includes('Attained')) throw new Error('attainment is not mentioned');
+  const targetChips = [...window.document.querySelectorAll('.stat .v small')].map((e) => e.textContent);
+  void targetChips;
+});
+
+document.querySelector('[data-act="log-paper"][data-subject="s-csd"]').dispatchEvent(
+  new window.MouseEvent('click', { bubbles: true })
+);
+await tick();
+
+check('the CSD paper dialog offers Attained / Not attained and hides levels', () => {
+  const m = modal();
+  if (!m) throw new Error('no dialog');
+  const level = m.querySelector('#pf-level');
+  const attain = m.querySelector('#pf-attain');
+  if (!level.hidden) throw new Error('the 1–5** level field should be hidden for CSD');
+  if (attain.hidden) throw new Error('the attainment field should be visible for CSD');
+  const values = [...attain.querySelectorAll('option')].map((o) => o.value).filter(Boolean);
+  if (values.join(',') !== 'attained,unattained') throw new Error(`unexpected attainment options: ${values}`);
+  const yearValues = [...m.querySelectorAll('#pf-year option')].map((o) => Number(o.value));
+  if (Math.min(...yearValues) !== 2024) throw new Error('CSD years should start at 2024');
+});
+
+const attainSelect = modal().querySelector('#pf-attain');
+attainSelect.value = 'attained';
+const csdForm = modal().querySelector('#paper-form');
+csdForm.querySelector('#pf-score').value = '34';
+csdForm.querySelector('#pf-max').value = '42';
+csdForm.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+await tick();
+await tick();
+
+check('logging a CSD attempt saves attainment with no level', () => {
+  if (modal()) throw new Error('dialog stayed open');
+  const saved = db.papers.find((p) => p.subjectId === 's-csd');
+  if (!saved) throw new Error('paper was not saved');
+  if (saved.attainment !== 'attained') throw new Error(`attainment is ${saved.attainment}`);
+  if (saved.estimatedLevel !== null) throw new Error('a CSD log stored a level');
+  if (saved.paper !== 'P1') throw new Error(`unexpected paper ${saved.paper}`);
+});
+
+/* --- a levelled subject still gets levels -------------------------------- */
+
+app.navigate('papers');
+await tick();
+document.querySelector('[data-act="pick-subject"][data-id="s3"]').dispatchEvent(
+  new window.MouseEvent('click', { bubbles: true })
+);
+await tick();
+document.querySelector('[data-act="log-paper"][data-subject="s3"]').dispatchEvent(
+  new window.MouseEvent('click', { bubbles: true })
+);
+await tick();
+
+check('a levelled subject still offers the 1–5** field and hides attainment', () => {
+  const m = modal();
+  if (!m) throw new Error('no dialog');
+  if (m.querySelector('#pf-level').hidden) throw new Error('level field should be visible for Mathematics');
+  if (!m.querySelector('#pf-attain').hidden) throw new Error('attainment should be hidden for Mathematics');
+  const heads = [...m.querySelectorAll('#pf-paper option')].map((o) => o.value);
+  if (!heads.includes('P2')) throw new Error('Mathematics should offer P2');
+  const yearValues = [...m.querySelectorAll('#pf-year option')].map((o) => Number(o.value));
+  if (Math.min(...yearValues) !== 2012) throw new Error('levelled subjects should start in 2012');
+});
+
+lib.closeModal();
+
+/* --- subject dialog: CSD swaps its grading fields ------------------------- */
+
+app.navigate('settings');
+await tick();
+document.querySelector('[data-act="add-subject"]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+await tick();
+
+check('the subject dialog hides level fields for CSD', () => {
+  const m = modal();
+  if (!m) throw new Error('no dialog');
+  const code = m.querySelector('#sj-code');
+  code.value = 'CSD';
+  code.dispatchEvent(new window.Event('change', { bubbles: true }));
+  if (!m.querySelector('#sj-level-fields').hidden) throw new Error('level fields should hide for CSD');
+  if (m.querySelector('#sj-attain-field').hidden) throw new Error('attainment field should show for CSD');
+
+  code.value = 'BIOL';
+  code.dispatchEvent(new window.Event('change', { bubbles: true }));
+  if (m.querySelector('#sj-level-fields').hidden) throw new Error('level fields should return for Biology');
+  if (!m.querySelector('#sj-attain-field').hidden) throw new Error('attainment field should hide for Biology');
+});
+
+lib.closeModal();
+
 /* --- Redirect to sign-in kept clean -------------------------------------- */
 
 check('no leftover dialog overlay after the flows', () => {

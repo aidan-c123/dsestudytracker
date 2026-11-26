@@ -54,8 +54,10 @@ function makeStore() {
           code,
           name: code,
           category: 'core',
-          targetLevel: 4,
+          // CSD is graded Attained / Unattained, so it has no level target.
+          targetLevel: code === 'CSD' ? null : 4,
           predictedLevel: null,
+          attainment: null,
           examDate: null,
           sortOrder: i,
           createdAt: new Date()
@@ -425,6 +427,103 @@ await test('password hashing verifies the right password only', async () => {
   const record = hashPassword('password123');
   assert.equal(verifyPassword('password123', record), true);
   assert.equal(verifyPassword('password124', record), false);
+});
+
+await test('CSD is graded Attained / Not attained, not on levels', async () => {
+  const me = await callJson('/me', { cookie: alice });
+  const csd = me.data.subjects.find((s) => s.code === 'CSD');
+  assert.ok(csd, 'CSD is seeded as a core subject');
+  assert.equal(csd.targetLevel, null, 'CSD has no level target');
+
+  const res = await callJson('/papers', {
+    method: 'POST',
+    cookie: alice,
+    body: { subjectId: csd.id, year: 2024, paper: 'P1', attainment: 'attained' }
+  });
+  assert.equal(res.status, 201);
+  const paper = res.data.papers.find((p) => p.subjectId === csd.id);
+  assert.equal(paper.attainment, 'attained');
+  assert.equal(paper.estimatedLevel, null, 'a CSD log never carries a level');
+});
+
+await test('CSD rejects a level, a second paper, and pre-2024 years', async () => {
+  const me = await callJson('/me', { cookie: alice });
+  const csd = me.data.subjects.find((s) => s.code === 'CSD');
+
+  // A level sent for CSD is dropped rather than stored.
+  const levelled = await callJson('/papers', {
+    method: 'POST',
+    cookie: alice,
+    body: { subjectId: csd.id, year: 2025, paper: 'P1', attainment: 'attained', estimatedLevel: 5 }
+  });
+  const stored = levelled.data.papers.find((p) => p.subjectId === csd.id && p.year === 2025);
+  assert.equal(stored.estimatedLevel, null, 'level ignored for CSD');
+
+  // CSD has a single paper.
+  const secondPaper = await callJson('/papers', {
+    method: 'POST',
+    cookie: alice,
+    body: { subjectId: csd.id, year: 2025, paper: 'P2' }
+  });
+  assert.equal(secondPaper.status, 400);
+  assert.match(secondPaper.data.error, /single paper|Year/i);
+
+  // CSD was first examined in 2024.
+  const tooEarly = await callJson('/papers', {
+    method: 'POST',
+    cookie: alice,
+    body: { subjectId: csd.id, year: 2023, paper: 'P1' }
+  });
+  assert.equal(tooEarly.status, 400);
+  assert.match(tooEarly.data.error, /2024/);
+
+  // A levelled subject still gets its 2012 floor.
+  const eng = me.data.subjects.find((s) => s.code === 'ENG');
+  const oldEng = await callJson('/papers', {
+    method: 'POST',
+    cookie: alice,
+    body: { subjectId: eng.id, year: 2011, paper: 'P1' }
+  });
+  assert.equal(oldEng.status, 400);
+});
+
+await test('CSD attainment must be a real value', async () => {
+  const me = await callJson('/me', { cookie: alice });
+  const csd = me.data.subjects.find((s) => s.code === 'CSD');
+  const res = await callJson('/papers', {
+    method: 'POST',
+    cookie: alice,
+    body: { subjectId: csd.id, year: 2026, paper: 'P1', attainment: 'maybe' }
+  });
+  assert.equal(res.status, 400);
+  assert.match(res.data.error, /Attained/i);
+});
+
+await test('a levelled paper never stores attainment', async () => {
+  const me = await callJson('/me', { cookie: alice });
+  const math = me.data.subjects.find((s) => s.code === 'MATH');
+  const res = await callJson('/papers', {
+    method: 'POST',
+    cookie: alice,
+    body: { subjectId: math.id, year: 2022, paper: 'P1', score: 70, maxScore: 100, attainment: 'attained' }
+  });
+  const paper = res.data.papers.find((p) => p.subjectId === math.id && p.year === 2022);
+  assert.equal(paper.attainment, null, 'attainment is CSD-only');
+});
+
+await test('CSD school prediction is stored instead of a target level', async () => {
+  const me = await callJson('/me', { cookie: alice });
+  const csd = me.data.subjects.find((s) => s.code === 'CSD');
+  const res = await callJson(`/subjects/${csd.id}`, {
+    method: 'PATCH',
+    cookie: alice,
+    body: { targetLevel: 5, predictedLevel: 5, attainment: 'attained' }
+  });
+  assert.equal(res.status, 200);
+  const updated = res.data.subjects.find((s) => s.id === csd.id);
+  assert.equal(updated.attainment, 'attained');
+  assert.equal(updated.targetLevel, null, 'CSD never keeps a level target');
+  assert.equal(updated.predictedLevel, null);
 });
 
 await test('deleting an account removes its records', async () => {

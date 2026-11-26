@@ -1,6 +1,7 @@
 import {
   text, validEmail, validPassword, level, numOrNull, dateOrNull, percentageOf, catalogEntry,
-  LIMITS, sessionCookie, clearCookie, verifyPassword as verifyHash
+  LIMITS, sessionCookie, clearCookie, verifyPassword as verifyHash,
+  attainment, usesAttainment, CSD_CODE, CSD_FIRST_YEAR
 } from './util.js';
 
 /* --------------------------------- responses ------------------------------ */
@@ -184,13 +185,20 @@ export async function handleApi(request, path, injectedStore) {
       const category = ['core', 'elective', 'extended'].includes(body.category)
         ? body.category
         : entry?.category || 'elective';
+      const code = entry ? String(body.code).toUpperCase() : text(body.code, 12).toUpperCase();
+      const csd = usesAttainment({ code });
+      const marked = attainment(body.attainment);
+      if (body.attainment !== undefined && body.attainment !== null && body.attainment !== '' && !marked) {
+        return fail('Choose Attained or Not attained.');
+      }
 
       await store.addSubject(userId, {
-        code: entry ? String(body.code).toUpperCase() : text(body.code, 12).toUpperCase(),
+        code,
         name,
         category,
-        targetLevel: level(body.targetLevel) ?? 4,
-        predictedLevel: level(body.predictedLevel),
+        targetLevel: csd ? null : level(body.targetLevel) ?? 4,
+        predictedLevel: csd ? null : level(body.predictedLevel),
+        attainment: csd ? marked : null,
         examDate: dateOrNull(body.examDate)
       });
       return json(await store.loadWorkspace(auth.user), 201);
@@ -206,14 +214,22 @@ export async function handleApi(request, path, injectedStore) {
         return json(await store.loadWorkspace(auth.user));
       }
 
+      const csd = usesAttainment(owned);
       const patch = {};
       if (body.name !== undefined) {
         const name = text(body.name, 60);
         if (!name) return fail('Name cannot be empty.');
         patch.name = name;
       }
-      if (body.targetLevel !== undefined) patch.targetLevel = level(body.targetLevel) ?? 4;
-      if (body.predictedLevel !== undefined) patch.predictedLevel = level(body.predictedLevel);
+      if (body.targetLevel !== undefined) patch.targetLevel = csd ? null : level(body.targetLevel) ?? 4;
+      if (body.predictedLevel !== undefined) patch.predictedLevel = csd ? null : level(body.predictedLevel);
+      if (body.attainment !== undefined) {
+        const marked = attainment(body.attainment);
+        if (body.attainment !== null && body.attainment !== '' && !marked) {
+          return fail('Choose Attained or Not attained.');
+        }
+        patch.attainment = marked;
+      }
       if (body.examDate !== undefined) patch.examDate = dateOrNull(body.examDate);
       if (body.sortOrder !== undefined) patch.sortOrder = Math.round(Number(body.sortOrder) || 0);
       if (!Object.keys(patch).length) return fail('Nothing to update.');
@@ -225,18 +241,29 @@ export async function handleApi(request, path, injectedStore) {
     /* ----------------------------- past papers ----------------------------- */
 
     if (path === '/papers' && method === 'POST') {
-      if (!(await store.ownedSubject(userId, text(body.subjectId, 40)))) {
-        return fail('Pick one of your own subjects.', 403);
-      }
+      const subject = await store.ownedSubject(userId, text(body.subjectId, 40));
+      if (!subject) return fail('Pick one of your own subjects.', 403);
+
+      // CSD is graded Attained / Unattained and was first examined in 2024.
+      const csd = usesAttainment(subject);
+      const earliest = csd ? CSD_FIRST_YEAR : 2012;
       const year = Math.round(Number(body.year));
-      if (!(year >= 2012 && year <= 2035)) return fail('Year must be between 2012 and 2035.');
+      if (!(year >= earliest && year <= 2035)) {
+        return fail(`Year must be between ${earliest} and 2035 for this subject.`);
+      }
       const paper = text(body.paper, 40);
       if (!paper) return fail('Choose a paper.');
+      if (csd && paper !== 'P1') return fail('CSD has a single paper: Paper 1.');
 
       const score = numOrNull(body.score);
       const maxScore = numOrNull(body.maxScore);
       if (score !== null && score < 0) return fail('Scores cannot be negative.');
       if (maxScore !== null && maxScore <= 0) return fail('Total marks must be greater than zero.');
+
+      const marked = attainment(body.attainment);
+      if (body.attainment !== undefined && body.attainment !== null && body.attainment !== '' && !marked) {
+        return fail('Choose Attained or Not attained.');
+      }
 
       await store.savePaper(userId, {
         subjectId: text(body.subjectId, 40),
@@ -245,7 +272,9 @@ export async function handleApi(request, path, injectedStore) {
         score,
         maxScore,
         percentage: percentageOf(score, maxScore, body.percentage),
-        estimatedLevel: level(body.estimatedLevel),
+        // Levels never apply to CSD, and attainment never applies to a levelled subject.
+        estimatedLevel: csd ? null : level(body.estimatedLevel),
+        attainment: csd ? marked : null,
         notes: text(body.notes, LIMITS.text)
       });
       return json(await store.loadWorkspace(auth.user), 201);
@@ -255,11 +284,16 @@ export async function handleApi(request, path, injectedStore) {
     if (paperMatch && method === 'PATCH') {
       const score = numOrNull(body.score);
       const maxScore = numOrNull(body.maxScore);
+      const marked = attainment(body.attainment);
+      if (body.attainment !== undefined && body.attainment !== null && body.attainment !== '' && !marked) {
+        return fail('Choose Attained or Not attained.');
+      }
       const ok = await store.patchPaper(userId, paperMatch[1], {
         score,
         maxScore,
         percentage: percentageOf(score, maxScore, body.percentage),
         estimatedLevel: level(body.estimatedLevel),
+        attainment: marked,
         notes: text(body.notes, LIMITS.text)
       });
       if (!ok) return fail('Paper log not found.', 404);

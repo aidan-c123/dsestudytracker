@@ -5,7 +5,8 @@
 import {
   $, $$, esc, icon, state, api, refresh, hooks, toast, openModal, closeModal,
   applyTheme, submitting, errorText, subjectById, subjectPrediction, papersOf, papersFor,
-  levelFromPercentage, lvlLabel, lvlChip, fmtDate, toLocalInput, daysUntil
+  levelFromPercentage, lvlLabel, lvlChip, fmtDate, toLocalInput, daysUntil,
+  usesAttainment, CSD_CODE, CSD_FIRST_YEAR, yearsFor
 } from './lib.js';
 import {
   startTimer, pauseTimer, resumeTimer, stopTimer, timerState, paintTimer, BREAK_MINUTES
@@ -336,8 +337,10 @@ function openPaperModal({ subjectId, year, paper, paper: paperRecord } = {}) {
   const initialSubject = existing?.subjectId || subjectId || state.paperSubjectId || subjects[0].id;
   const initialYear = existing?.year || Number(year) || 2024;
   const initialPaper = existing?.paper || paper || 'P1';
-  const years = Array.from({ length: 15 }, (_, i) => 2026 - i);
-  const list = papersFor(subjectById(initialSubject));
+  const startSubject = subjectById(initialSubject);
+  const years = yearsFor(startSubject);
+  const list = papersFor(startSubject);
+  const csd = usesAttainment(startSubject);
 
   openModal({
     title: existing ? 'Edit attempt' : 'Log a paper attempt',
@@ -357,7 +360,7 @@ function openPaperModal({ subjectId, year, paper, paper: paperRecord } = {}) {
           <div class="field">
             <label for="pf-paper">Paper</label>
             <select id="pf-paper">
-              ${['P1', 'P2', 'P3', 'P4', 'SBA']
+              ${(list.length ? list : ['P1', 'P2', 'P3', 'P4', 'SBA'])
                 .map((p) => `<option value="${p}" ${p === initialPaper ? 'selected' : ''}>${p}</option>`)
                 .join('')}
             </select>
@@ -370,14 +373,20 @@ function openPaperModal({ subjectId, year, paper, paper: paperRecord } = {}) {
               ${years.map((y) => `<option value="${y}" ${y === initialYear ? 'selected' : ''}>${y}</option>`).join('')}
             </select>
           </div>
-          <div class="field">
+          <div class="field" id="pf-grade-wrap">
             <label for="pf-level">Estimated DSE level</label>
-            <select id="pf-level">
+            <select id="pf-level" ${csd ? 'hidden' : ''}>
               <option value="">Not set</option>
               ${[7, 6, 5, 4, 3, 2, 1]
                 .map((l) => `<option value="${l}" ${existing?.estimatedLevel === l ? 'selected' : ''}>${lvlLabel(l)}</option>`)
                 .join('')}
             </select>
+            <select id="pf-attain" ${csd ? '' : 'hidden'}>
+              <option value="">Not set</option>
+              <option value="attained" ${existing?.attainment === 'attained' ? 'selected' : ''}>Attained</option>
+              <option value="unattained" ${existing?.attainment === 'unattained' ? 'selected' : ''}>Not attained</option>
+            </select>
+            <span class="hint" id="pf-grade-hint">${csd ? 'CSD is reported as Attained / Not attained — there are no levels.' : ''}</span>
           </div>
         </div>
         <div class="form-grid two">
@@ -393,7 +402,7 @@ function openPaperModal({ subjectId, year, paper, paper: paperRecord } = {}) {
         <div class="field">
           <label for="pf-pct">Percentage <span class="muted">(auto from score, or type it)</span></label>
           <input id="pf-pct" type="number" min="0" max="100" step="0.1" value="${existing?.percentage ?? ''}" placeholder="72" />
-          <span class="hint" id="pf-hint">Leave blank if you only want to note the level. ${list.length ? `Typical papers for this subject: ${list.join(', ')}.` : ''}</span>
+          <span class="hint" id="pf-hint">Leave blank if you only want to note the grade. ${list.length ? `Papers for this subject: ${list.join(', ')}.` : ''}</span>
         </div>
         <div class="field">
           <label for="pf-notes">Notes</label>
@@ -408,6 +417,12 @@ function openPaperModal({ subjectId, year, paper, paper: paperRecord } = {}) {
       const score = dialog.querySelector('#pf-score');
       const max = dialog.querySelector('#pf-max');
       const pctField = dialog.querySelector('#pf-pct');
+      const levelField = dialog.querySelector('#pf-level');
+      const attainField = dialog.querySelector('#pf-attain');
+      const gradeHint = dialog.querySelector('#pf-grade-hint');
+      const subjectField = dialog.querySelector('#pf-subject');
+      const paperField = dialog.querySelector('#pf-paper');
+      const yearField = dialog.querySelector('#pf-year');
       let pctTouched = Boolean(existing?.percentage);
 
       const recalc = () => {
@@ -421,16 +436,47 @@ function openPaperModal({ subjectId, year, paper, paper: paperRecord } = {}) {
       pctField.addEventListener('input', () => {
         pctTouched = true;
         const p = Number(pctField.value);
-        const levelField = dialog.querySelector('#pf-level');
-        if (!levelField.value && Number.isFinite(p) && pctField.value !== '') {
-          const guess = levelFromPercentage(p);
-          levelField.value = String(guess);
+        if (!levelField.value && !attainField.value && Number.isFinite(p) && pctField.value !== '') {
+          if (usesAttainment(subjectById(subjectField.value))) {
+            attainField.value = p >= 50 ? 'attained' : 'unattained';
+          } else {
+            levelField.value = String(levelFromPercentage(p));
+          }
         }
       });
 
-      dialog.querySelector('#pf-paper').addEventListener('change', (e) => {
+      // A different subject can change both the papers and the grading scheme,
+      // so rebuild the paper list and swap level ↔ attainment in place.
+      const syncSubject = () => {
+        const subject = subjectById(subjectField.value);
+        const csd = usesAttainment(subject);
+        const papers = papersFor(subject);
+
+        paperField.innerHTML = papers.map((p) => `<option value="${p}">${p}</option>`).join('');
+        if (paperField.value !== initialPaper) paperField.value = papers[0];
+
+        const earliest = csd ? CSD_FIRST_YEAR : 2012;
+        const currentYear = Number(yearField.value);
+        yearField.innerHTML = yearsFor(subject)
+          .map((y) => `<option value="${y}">${y}</option>`)
+          .join('');
+        yearField.value = String(currentYear >= earliest ? currentYear : 2026);
+
+        levelField.hidden = csd;
+        attainField.hidden = !csd;
+        attainField.disabled = !csd;
+        levelField.disabled = csd;
+        gradeHint.textContent = csd
+          ? 'CSD is reported as Attained / Not attained — there are no levels.'
+          : 'Best guess from this sitting, if you have one.';
+      };
+
+      subjectField.addEventListener('change', syncSubject);
+      syncSubject();
+
+      paperField.addEventListener('change', (e) => {
         const p = e.target.value;
-        if (p === 'SBA') dialog.querySelector('#pf-year').value = String(new Date().getFullYear());
+        if (p === 'SBA') yearField.value = String(new Date().getFullYear());
       });
 
       if (existing) {
@@ -459,6 +505,7 @@ function openPaperModal({ subjectId, year, paper, paper: paperRecord } = {}) {
           maxScore: dialog.querySelector('#pf-max').value === '' ? null : Number(dialog.querySelector('#pf-max').value),
           percentage: dialog.querySelector('#pf-pct').value === '' ? null : Number(dialog.querySelector('#pf-pct').value),
           estimatedLevel: dialog.querySelector('#pf-level').value ? Number(dialog.querySelector('#pf-level').value) : null,
+          attainment: dialog.querySelector('#pf-attain').value || null,
           notes: dialog.querySelector('#pf-notes').value
         };
         try {
@@ -654,7 +701,7 @@ function openSubjectModal(subject = null) {
                 <input id="sj-custom" maxlength="60" placeholder="e.g. Japanese" />
               </div>`
         }
-        <div class="form-grid two">
+        <div class="form-grid two" id="sj-level-fields">
           <div class="field">
             <label for="sj-target">Target level</label>
             <select id="sj-target">
@@ -673,6 +720,15 @@ function openSubjectModal(subject = null) {
             </select>
           </div>
         </div>
+        <div class="field" id="sj-attain-field" hidden>
+          <label for="sj-attain">School prediction</label>
+          <select id="sj-attain">
+            <option value="">Use paper evidence</option>
+            <option value="attained" ${subject?.attainment === 'attained' ? 'selected' : ''}>Attained</option>
+            <option value="unattained" ${subject?.attainment === 'unattained' ? 'selected' : ''}>Not attained</option>
+          </select>
+          <span class="hint">CSD is reported as Attained / Not attained — it has no level target.</span>
+        </div>
         <div class="field">
           <label for="sj-exam">Exam date <span class="muted">(optional — for per-subject countdown)</span></label>
           <input id="sj-exam" type="date" value="${subject?.examDate || ''}" />
@@ -682,26 +738,42 @@ function openSubjectModal(subject = null) {
       <button class="btn btn-primary" type="submit" form="subject-form">${subject ? 'Save' : 'Add subject'}</button>`,
     onMount: (dialog) => {
       const codeSelect = dialog.querySelector('#sj-code');
+      const levelFields = dialog.querySelector('#sj-level-fields');
+      const attainField = dialog.querySelector('#sj-attain-field');
+
+      // CSD has no levels at all, so the grading fields swap rather than adapt.
+      const syncGradeFields = (code) => {
+        const csd = String(code || '').toUpperCase() === CSD_CODE;
+        levelFields.hidden = csd;
+        attainField.hidden = !csd;
+      };
+
       if (codeSelect) {
         codeSelect.addEventListener('change', () => {
           const wrap = dialog.querySelector('#sj-custom-wrap');
           wrap.hidden = codeSelect.value !== 'OTHER';
+          syncGradeFields(codeSelect.value);
         });
       }
+      syncGradeFields(subject ? subject.code : codeSelect?.value);
+
       dialog.querySelector('#subject-form').addEventListener('submit', async (e) => {
         e.preventDefault();
         const btn = dialog.querySelector('button[form="subject-form"]');
         const restore = submitting(btn, 'Saving…');
+        const csd = levelFields.hidden;
         try {
           let body;
           if (subject) {
             body = {
-              name: dialog.querySelector('#sj-target') ? undefined : undefined,
-              targetLevel: Number(dialog.querySelector('#sj-target').value),
-              predictedLevel: dialog.querySelector('#sj-predicted').value
-                ? Number(dialog.querySelector('#sj-predicted').value)
-                : null,
-              examDate: dialog.querySelector('#sj-exam').value || null
+              examDate: dialog.querySelector('#sj-exam').value || null,
+              targetLevel: csd ? null : Number(dialog.querySelector('#sj-target').value),
+              predictedLevel: csd
+                ? null
+                : dialog.querySelector('#sj-predicted').value
+                  ? Number(dialog.querySelector('#sj-predicted').value)
+                  : null,
+              attainment: csd ? dialog.querySelector('#sj-attain').value || null : null
             };
             const data = await api(`/subjects/${subject.id}`, { method: 'PATCH', body });
             closeModal();
@@ -719,10 +791,13 @@ function openSubjectModal(subject = null) {
               code: code === 'OTHER' ? '' : code,
               name: code === 'OTHER' ? custom : undefined,
               category: code === 'OTHER' ? 'elective' : undefined,
-              targetLevel: Number(dialog.querySelector('#sj-target').value),
-              predictedLevel: dialog.querySelector('#sj-predicted').value
-                ? Number(dialog.querySelector('#sj-predicted').value)
-                : null,
+              targetLevel: csd ? null : Number(dialog.querySelector('#sj-target').value),
+              predictedLevel: csd
+                ? null
+                : dialog.querySelector('#sj-predicted').value
+                  ? Number(dialog.querySelector('#sj-predicted').value)
+                  : null,
+              attainment: csd ? dialog.querySelector('#sj-attain').value || null : null,
               examDate: dialog.querySelector('#sj-exam').value || null
             };
             const data = await api('/subjects', { method: 'POST', body });

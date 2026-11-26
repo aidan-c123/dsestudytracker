@@ -5,7 +5,8 @@
 import {
   esc, icon, state, topbar, countdownParts, examMoment, fmtDate, fmtMinutes, pct, lvlChip,
   lvlLabel, subjectPrediction, subjectPct, minutesOnDay, dayKey, dailySeries, distribution,
-  streak, rangeMinutes, fmtDue, subjectById
+  streak, rangeMinutes, fmtDue, subjectById, usesAttainment, subjectAttainment,
+  attainmentChip, attainmentLabel
 } from '../lib.js';
 
 export function renderDesk() {
@@ -109,14 +110,36 @@ export function renderDesk() {
           <span class="spacer"></span>
           <a class="btn btn-ghost btn-sm" href="#/papers">Papers ${icon('arrow')}</a>
         </div>
-        <p class="card-note" style="margin:-6px 0 12px">Predicted is built from your logged paper levels until you set a school estimate.</p>
+        <p class="card-note" style="margin:-6px 0 12px">Predicted is built from your logged paper levels until you set a school estimate. CSD shows Attained / Not attained instead.</p>
         <div class="ledger">
           ${
             state.data.subjects.length
               ? state.data.subjects
                   .map((s) => {
+                    const csd = usesAttainment(s);
                     const pred = subjectPrediction(s);
+                    const attain = subjectAttainment(s);
                     const p = subjectPct(s.id);
+                    // CSD has no 1–7 scale, so it gets a two-state bar rather than a level bar.
+                    if (csd) {
+                      return `
+                    <div class="ledger-row">
+                      <div class="subj-name">
+                        <span class="code">${esc(s.code || '—')}</span>
+                        <b>${esc(s.name)}</b>
+                      </div>
+                      <div class="level-pair">
+                        ${attain.value ? attainmentChip(attain.value) : '<span class="attain">—</span>'}
+                        <span class="target-sep">predicted</span>
+                      </div>
+                      <div class="level-pair" style="justify-self:end">${
+                        p === null ? '<span class="muted">no papers</span>' : `<span class="tabular">${pct(p)}</span>`
+                      }</div>
+                      <div class="ledger-bar" title="CSD is pass / fail: Attained or Not attained">
+                        <i class="${attain.value === 'attained' ? '' : 'is-empty'}" style="width:${attain.value === 'attained' ? '100%' : attain.value === 'unattained' ? '18%' : '0'}%"></i>
+                      </div>
+                    </div>`;
+                    }
                     return `
                     <div class="ledger-row">
                       <div class="subj-name">
@@ -134,7 +157,7 @@ export function renderDesk() {
                       }</div>
                       <div class="ledger-bar" title="Target level ${lvlLabel(s.targetLevel)}">
                         <i style="width:${pred.level ? Math.min(100, (pred.level / 7) * 100) : 0}%"></i>
-                        <span class="target-tick" style="left:calc(${(s.targetLevel / 7) * 100}% - 1px)"></span>
+                        <span class="target-tick" style="left:calc(${((s.targetLevel || 4) / 7) * 100}% - 1px)"></span>
                       </div>
                     </div>`;
                   })
@@ -220,7 +243,7 @@ export function renderDesk() {
         ${
           recentPapers.length
             ? `<div class="table-wrap"><table class="plain">
-                <thead><tr><th>Subject</th><th>Paper</th><th>Score</th><th>Level</th></tr></thead>
+                <thead><tr><th>Subject</th><th>Paper</th><th>Score</th><th>Grade</th></tr></thead>
                 <tbody>
                   ${recentPapers
                     .map((p) => {
@@ -229,7 +252,7 @@ export function renderDesk() {
                         <td><b>${esc(s?.code || '—')}</b> <span class="muted">${esc(s?.name || '')}</span></td>
                         <td class="num">${esc(p.year)} ${esc(p.paper)}</td>
                         <td class="num">${Number.isFinite(p.percentage) ? pct(p.percentage) : '—'}</td>
-                        <td>${lvlChip(p.estimatedLevel)}</td>
+                        <td>${usesAttainment(s) ? attainmentChip(p.attainment) : lvlChip(p.estimatedLevel)}</td>
                       </tr>`;
                     })
                     .join('')}

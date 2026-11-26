@@ -40,13 +40,37 @@ export const LEVEL_LABELS = { 1: '1', 2: '2', 3: '3', 4: '4', 5: '5', 6: '5*', 7
 export const lvlLabel = (n) => (n ? LEVEL_LABELS[n] || String(n) : '—');
 export const lvlChip = (n) => `<span class="lvl lvl-${n || 0}">${lvlLabel(n)}</span>`;
 
+/* --------------------------------- CSD ----------------------------------- */
+
+/**
+ * CSD was first examined in 2024 and HKEAA reports it only as
+ * "Attained" / "Unattained". No levels, one paper, and no SBA.
+ */
+export const CSD_CODE = 'CSD';
+export const CSD_FIRST_YEAR = 2024;
+export const ATTAINMENT_LABELS = { attained: 'Attained', unattained: 'Not attained' };
+export const usesAttainment = (subject) => String(subject?.code || '').toUpperCase() === CSD_CODE;
+export const attainmentLabel = (value) => ATTAINMENT_LABELS[value] || '—';
+export const attainmentChip = (value) =>
+  value
+    ? `<span class="attain ${value}">${attainmentLabel(value)}</span>`
+    : '<span class="attain">—</span>';
+
+/** Years a subject was actually examined, newest first. */
+export const yearsFor = (subject) => {
+  const first = usesAttainment(subject) ? CSD_FIRST_YEAR : 2012;
+  const out = [];
+  for (let y = 2026; y >= first; y--) out.push(y);
+  return out;
+};
+
 export const SUBJECT_CODES = {
   CHIN: ['P1', 'P2', 'P3'],
   ENG: ['P1', 'P2', 'P3', 'P4'],
   MATH: ['P1', 'P2'],
   M1: ['P1'],
   M2: ['P1'],
-  CSD: ['P1', 'P2']
+  CSD: ['P1']
 };
 export const papersFor = (subject) => SUBJECT_CODES[subject?.code] || ['P1', 'P2'];
 
@@ -191,6 +215,22 @@ export function subjectPrediction(subject) {
   const withPct = papersOf(subject.id).filter((p) => Number.isFinite(p.percentage));
   if (!withPct.length) return { level: null, source: 'none' };
   return { level: levelFromPercentage(withPct.reduce((a, p) => a + p.percentage, 0) / withPct.length), source: 'pct' };
+}
+
+/**
+ * CSD has no levels, so attainment is predicted separately: the most recent
+ * logged paper carries the call, falling back to the school's judgement.
+ */
+export function subjectAttainment(subject) {
+  const marked = papersOf(subject.id)
+    .filter((p) => p.attainment === 'attained' || p.attainment === 'unattained')
+    .sort((a, b) => b.year - a.year);
+  if (marked.length) return { value: marked[0].attainment, source: 'papers' };
+  if (subject.attainment) return { value: subject.attainment, source: 'school' };
+  const avg = subjectPct(subject.id);
+  if (avg === null) return { value: null, source: 'none' };
+  // Attainment is a pass mark; a bare average is only a hint, not a prediction.
+  return { value: avg >= 50 ? 'attained' : 'unattained', source: 'pct' };
 }
 
 export function subjectPct(subjectId) {
