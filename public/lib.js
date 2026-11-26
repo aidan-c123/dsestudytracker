@@ -126,6 +126,17 @@ export const state = {
   timerSubject: null
 };
 
+/** Overlay containers live in index.html; create them if a page omits them. */
+export function host(id) {
+  let el = document.getElementById(id);
+  if (!el) {
+    el = document.createElement('div');
+    el.id = id;
+    document.body.appendChild(el);
+  }
+  return el;
+}
+
 export const hooks = { renderView() {}, renderApp() {}, syncNav() {}, afterAuth() {} };
 
 /* ----------------------------------- api ---------------------------------- */
@@ -286,11 +297,11 @@ media.addEventListener('change', () => applyTheme(state.data?.user.theme || 'sys
 /* ---------------------------------- toast --------------------------------- */
 
 export function toast(message, kind = '') {
-  const host = document.getElementById('toast-root');
+  const layer = host('toast-root');
   const el = document.createElement('div');
   el.className = `toast ${kind}`;
   el.innerHTML = `<span class="grow">${esc(message)}</span>`;
-  host.appendChild(el);
+  layer.appendChild(el);
   setTimeout(() => el.remove(), 4200);
 }
 
@@ -300,7 +311,7 @@ let modalCleanup = null;
 
 export function openModal({ title, subtitle = '', body, wide = false, footer = '', onMount }) {
   closeModal();
-  const host = document.getElementById('modal-root');
+  const layer = host('modal-root');
   const backdrop = document.createElement('div');
   backdrop.className = 'modal-backdrop';
   backdrop.innerHTML = `
@@ -315,7 +326,7 @@ export function openModal({ title, subtitle = '', body, wide = false, footer = '
       <div class="modal-body">${body}</div>
       ${footer ? `<div class="modal-foot">${footer}</div>` : ''}
     </div>`;
-  host.appendChild(backdrop);
+  layer.appendChild(backdrop);
   document.body.style.overflow = 'hidden';
 
   const onKey = (e) => {
@@ -349,9 +360,9 @@ export function openModal({ title, subtitle = '', body, wide = false, footer = '
 }
 
 export function closeModal() {
-  const host = document.getElementById('modal-root');
-  if (!host) return;
-  host.innerHTML = '';
+  const layer = document.getElementById('modal-root');
+  if (!layer) return;
+  layer.innerHTML = '';
   document.body.style.overflow = '';
   if (modalCleanup) modalCleanup();
   modalCleanup = null;

@@ -13,6 +13,7 @@
   "scripts": {
     "dev": "vercel dev",
     "check": "node --check server/routes.js && node --check server/store.js && node --check server/db.js",
-    "test": "node test/isolation.test.js"
+    "test": "node test/isolation.test.js",
+    "test:ui": "node test/ui.test.mjs"
   }
 }

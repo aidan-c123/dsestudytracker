@@ -1,0 +1,14 @@
+{
+  "name": "desk-no-4-preview",
+  "main": "preview/worker.js",
+  "compatibility_date": "2025-01-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "directory": "public",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application"
+  },
+  "observability": {
+    "enabled": true
+  }
+}
