@@ -1,0 +1,438 @@
+/**
+ * Route-level tests for the Atlas/Vercel API, run against an in-memory store.
+ * Verifies auth flows, validation and — most importantly — that one student
+ * can never read or mutate another student's records.
+ *
+ * Run: node test/isolation.test.js
+ */
+
+import assert from 'node:assert/strict';
+import { handleApi } from '../server/routes.js';
+import { hashPassword, verifyPassword } from '../server/util.js';
+
+/* ------------------------------ in-memory store ---------------------------- */
+
+function makeStore() {
+  const users = new Map();
+  const sessions = new Map();
+  const data = { subjects: new Map(), pastPapers: new Map(), studyLogs: new Map(), sbaTasks: new Map(), errorLogs: new Map() };
+  let seq = 0;
+  const id = (prefix) => `${prefix}${String(++seq).padStart(20, '0')}`;
+  const byUser = (table, userId) => [...data[table].values()].filter((d) => d.userId === userId);
+  const findOwned = (table, userId, docId) => {
+    const doc = data[table].get(docId);
+    return doc && doc.userId === userId ? doc : null;
+  };
+
+  return {
+    async findUserByEmail(email) {
+      return [...users.values()].find((u) => u.emailLower === email.toLowerCase()) || null;
+    },
+    async createUser({ name, email, password }) {
+      const user = {
+        _id: id('u'),
+        name,
+        email,
+        emailLower: email.toLowerCase(),
+        pw: hashPassword(password),
+        recovery: hashPassword('TEST-CODE-1234'),
+        examDate: '2027-04-06',
+        resultsDate: '2027-07-14',
+        dailyGoalMinutes: 120,
+        theme: 'system',
+        createdAt: new Date()
+      };
+      users.set(user._id, user);
+      await this.seedSubjects(user._id);
+      return { user, recoveryCode: 'TEST-CODE-1234' };
+    },
+    async seedSubjects(userId) {
+      for (const [i, code] of ['CHIN', 'ENG', 'MATH', 'CSD'].entries()) {
+        const subject = {
+          _id: id('s'),
+          userId,
+          code,
+          name: code,
+          category: 'core',
+          targetLevel: 4,
+          predictedLevel: null,
+          examDate: null,
+          sortOrder: i,
+          createdAt: new Date()
+        };
+        data.subjects.set(subject._id, subject);
+      }
+    },
+    async createSession(userId) {
+      const token = `tok-${userId}-${++seq}`;
+      sessions.set(token, { userId });
+      return { token, secure: true };
+    },
+    async currentUser(headers) {
+      const cookie = headers.get('cookie') || '';
+      const token = cookie.replace(/^.*dse_session=([^;]+).*$/, '$1');
+      const s = sessions.get(token);
+      if (!s) return null;
+      const user = users.get(s.userId);
+      if (!user) return null;
+      return { user, session: { _id: 'sess' } };
+    },
+    async destroySession(headers) {
+      const cookie = headers.get('cookie') || '';
+      const token = cookie.replace(/^.*dse_session=([^;]+).*$/, '$1');
+      sessions.delete(token);
+    },
+    async destroyOtherSessions() {},
+    async updateUser(userId, patch) {
+      const user = users.get(userId);
+      Object.assign(user, patch);
+      return user;
+    },
+    async setPassword(userId, password) {
+      users.get(userId).pw = hashPassword(password);
+    },
+    async rotateRecovery() {
+      return 'NEW-CODE-5678';
+    },
+    async deleteAccount(userId) {
+      users.delete(userId);
+      for (const [token, s] of sessions) if (s.userId === userId) sessions.delete(token);
+      for (const table of Object.keys(data)) {
+        for (const [k, v] of data[table]) if (v.userId === userId) data[table].delete(k);
+      }
+    },
+    async loadWorkspace(user) {
+      const userId = user._id;
+      const { pw, recovery, emailLower, _id, ...safeUser } = user;
+      void pw;
+      void recovery;
+      void emailLower;
+      const shape = (doc) => {
+        const { _id: docId, userId: owner, ...rest } = doc;
+        void owner;
+        return { id: docId, ...rest };
+      };
+      return {
+        user: { id: _id, ...safeUser },
+        subjects: byUser('subjects', userId).map(shape),
+        papers: byUser('pastPapers', userId).map(shape),
+        logs: byUser('studyLogs', userId).map(shape),
+        tasks: byUser('sbaTasks', userId).map(shape),
+        errors: byUser('errorLogs', userId).map(shape)
+      };
+    },
+    async ownedSubject(userId, subjectId) {
+      return findOwned('subjects', userId, subjectId);
+    },
+    async addSubject(userId, input) {
+      const doc = { _id: id('s'), userId, ...input, sortOrder: 9, createdAt: new Date() };
+      data.subjects.set(doc._id, doc);
+      return doc;
+    },
+    async patchSubject(userId, subjectId, patch) {
+      const doc = findOwned('subjects', userId, subjectId);
+      if (doc) Object.assign(doc, patch);
+    },
+    async removeSubject(userId, subjectId) {
+      data.subjects.delete(subjectId);
+      for (const table of ['pastPapers', 'studyLogs', 'sbaTasks', 'errorLogs']) {
+        for (const [k, v] of data[table]) if (v.userId === userId && v.subjectId === subjectId) data[table].delete(k);
+      }
+    },
+    async savePaper(userId, input) {
+      const existing = byUser('pastPapers', userId).find(
+        (p) => p.subjectId === input.subjectId && p.year === input.year && p.paper === input.paper
+      );
+      if (existing) Object.assign(existing, input, { attemptedAt: new Date() });
+      else {
+        const doc = { _id: id('p'), userId, ...input, attemptedAt: new Date() };
+        data.pastPapers.set(doc._id, doc);
+      }
+    },
+    async patchPaper(userId, paperId, patch) {
+      const doc = findOwned('pastPapers', userId, paperId);
+      if (!doc) return false;
+      Object.assign(doc, patch);
+      return true;
+    },
+    async removePaper(userId, paperId) {
+      if (findOwned('pastPapers', userId, paperId)) data.pastPapers.delete(paperId);
+    },
+    async addLog(userId, input) {
+      const doc = { _id: id('l'), userId, ...input };
+      data.studyLogs.set(doc._id, doc);
+      return doc;
+    },
+    async clearLogsSince(userId, days) {
+      const cutoff = Date.now() - days * 86400000;
+      for (const [k, v] of data.studyLogs) {
+        if (v.userId === userId && new Date(v.completedAt).getTime() >= cutoff) data.studyLogs.delete(k);
+      }
+    },
+    async addTask(userId, input) {
+      const doc = { _id: id('t'), userId, status: 'todo', ...input };
+      data.sbaTasks.set(doc._id, doc);
+      return doc;
+    },
+    async patchTask(userId, taskId, patch) {
+      const doc = findOwned('sbaTasks', userId, taskId);
+      if (!doc) return false;
+      Object.assign(doc, patch);
+      return true;
+    },
+    async removeTask(userId, taskId) {
+      if (findOwned('sbaTasks', userId, taskId)) data.sbaTasks.delete(taskId);
+    },
+    async addError(userId, input) {
+      const doc = { _id: id('e'), userId, ...input };
+      data.errorLogs.set(doc._id, doc);
+      return doc;
+    },
+    async removeError(userId, errorId) {
+      if (findOwned('errorLogs', userId, errorId)) data.errorLogs.delete(errorId);
+    }
+  };
+}
+
+/* --------------------------------- harness -------------------------------- */
+
+const store = makeStore();
+
+function call(path, { method = 'GET', body, cookie, origin = 'https://desk.example' } = {}) {
+  const headers = new Headers({ origin });
+  if (body) headers.set('content-type', 'application/json');
+  if (cookie) headers.set('cookie', `dse_session=${cookie}`);
+  const request = new Request(`https://desk.example/api${path}`, {
+    method,
+    headers,
+    body: body ? JSON.stringify(body) : undefined
+  });
+  return handleApi(request, path, store);
+}
+
+async function callJson(path, options) {
+  const res = await call(path, options);
+  const data = await res.json();
+  return { status: res.status, data, setCookie: res.headers.get('set-cookie') };
+}
+
+const tokenFrom = (setCookie) => setCookie?.match(/dse_session=([^;]+)/)?.[1] || null;
+
+let passed = 0;
+async function test(name, fn) {
+  try {
+    await fn();
+    passed++;
+    console.log(`  ok  ${name}`);
+  } catch (err) {
+    console.error(`FAIL  ${name}\n      ${err.message}`);
+    process.exitCode = 1;
+  }
+}
+
+/* ---------------------------------- tests --------------------------------- */
+
+console.log('\nDesk No. 4 — API isolation tests\n');
+
+let alice;
+let bob;
+
+await test('registration creates a session and seeds four core subjects', async () => {
+  const res = await callJson('/auth/register', {
+    method: 'POST',
+    body: { name: 'Alice Wong', email: 'alice@school.edu.hk', password: 'password123' }
+  });
+  assert.equal(res.status, 201);
+  assert.ok(res.data.recoveryCode, 'recovery code returned once');
+  alice = tokenFrom(res.setCookie);
+  assert.ok(alice, 'session cookie set');
+
+  const me = await callJson('/me', { cookie: alice });
+  assert.equal(me.status, 200);
+  assert.equal(me.data.subjects.length, 4);
+  assert.deepEqual(me.data.subjects.map((s) => s.code), ['CHIN', 'ENG', 'MATH', 'CSD']);
+  assert.equal(me.data.user.email, 'alice@school.edu.hk');
+  assert.equal(me.data.user.pw, undefined, 'password hash never leaves the server');
+});
+
+await test('duplicate email is rejected', async () => {
+  const res = await callJson('/auth/register', {
+    method: 'POST',
+    body: { name: 'Impostor', email: 'ALICE@school.edu.hk', password: 'password123' }
+  });
+  assert.equal(res.status, 409);
+});
+
+await test('wrong password is rejected without leaking which field was wrong', async () => {
+  const res = await callJson('/auth/login', {
+    method: 'POST',
+    body: { email: 'alice@school.edu.hk', password: 'wrongpassword' }
+  });
+  assert.equal(res.status, 401);
+  assert.match(res.data.error, /Email or password/);
+});
+
+await test('unauthenticated requests cannot read the workspace', async () => {
+  const res = await callJson('/me');
+  assert.equal(res.status, 401);
+});
+
+await test('cross-origin state changes are blocked', async () => {
+  const res = await callJson('/logs', {
+    method: 'POST',
+    body: { minutes: 25 },
+    cookie: alice,
+    origin: 'https://evil.example'
+  });
+  assert.equal(res.status, 403);
+});
+
+await test('paper logging upserts the same cell instead of duplicating it', async () => {
+  const me = await callJson('/me', { cookie: alice });
+  const mathId = me.data.subjects.find((s) => s.code === 'MATH').id;
+
+  const first = await callJson('/papers', {
+    method: 'POST',
+    cookie: alice,
+    body: { subjectId: mathId, year: 2024, paper: 'P1', score: 76, maxScore: 100, estimatedLevel: 5 }
+  });
+  assert.equal(first.status, 201);
+  assert.equal(first.data.papers.length, 1);
+  assert.equal(first.data.papers[0].percentage, 76);
+
+  const second = await callJson('/papers', {
+    method: 'POST',
+    cookie: alice,
+    body: { subjectId: mathId, year: 2024, paper: 'P1', score: 90, maxScore: 100, estimatedLevel: 6 }
+  });
+  assert.equal(second.data.papers.length, 1, 'still one row for that cell');
+  assert.equal(second.data.papers[0].percentage, 90);
+  assert.equal(second.data.papers[0].estimatedLevel, 6);
+});
+
+await test('a second student sees an empty, separate workspace', async () => {
+  const res = await callJson('/auth/register', {
+    method: 'POST',
+    body: { name: 'Bob Lee', email: 'bob@school.edu.hk', password: 'password456' }
+  });
+  bob = tokenFrom(res.setCookie);
+  const me = await callJson('/me', { cookie: bob });
+  assert.equal(me.data.papers.length, 0, 'no papers leak across accounts');
+  assert.equal(me.data.subjects.length, 4);
+});
+
+await test('student B cannot log a paper against student A\'s subject', async () => {
+  const aliceMe = await callJson('/me', { cookie: alice });
+  const aliceMath = aliceMe.data.subjects.find((s) => s.code === 'MATH').id;
+
+  const res = await callJson('/papers', {
+    method: 'POST',
+    cookie: bob,
+    body: { subjectId: aliceMath, year: 2023, paper: 'P1', score: 50, maxScore: 100 }
+  });
+  assert.equal(res.status, 403);
+});
+
+await test('student B cannot edit or delete student A\'s paper log', async () => {
+  const aliceMe = await callJson('/me', { cookie: alice });
+  const paperId = aliceMe.data.papers[0].id;
+
+  const patch = await callJson(`/papers/${paperId}`, {
+    method: 'PATCH',
+    cookie: bob,
+    body: { score: 5, maxScore: 100 }
+  });
+  assert.equal(patch.status, 404, 'edit is scoped to the owner');
+
+  const del = await callJson(`/papers/${paperId}`, { method: 'DELETE', cookie: bob });
+  assert.equal(del.status, 200);
+  const stillThere = await callJson('/me', { cookie: alice });
+  assert.equal(stillThere.data.papers.length, 1, 'record survived the foreign delete');
+});
+
+await test('a foreign task id cannot be patched or deleted', async () => {
+  const task = await callJson('/tasks', {
+    method: 'POST',
+    cookie: alice,
+    body: { title: 'Chemistry SBA draft', kind: 'sba', dueDate: '2027-01-15' }
+  });
+  const taskId = task.data.tasks[0].id;
+
+  const patch = await callJson(`/tasks/${taskId}`, {
+    method: 'PATCH',
+    cookie: bob,
+    body: { status: 'done' }
+  });
+  assert.equal(patch.status, 404);
+
+  await callJson(`/tasks/${taskId}`, { method: 'DELETE', cookie: bob });
+  const aliceMe = await callJson('/me', { cookie: alice });
+  assert.equal(aliceMe.data.tasks.length, 1);
+  assert.equal(aliceMe.data.tasks[0].status, 'todo');
+});
+
+await test('study sessions are logged against the caller only', async () => {
+  const log = await callJson('/logs', {
+    method: 'POST',
+    cookie: alice,
+    body: { minutes: 25, label: 'Trig drill' }
+  });
+  assert.equal(log.status, 201);
+  assert.equal(log.data.logs.length, 1);
+
+  const bobMe = await callJson('/me', { cookie: bob });
+  assert.equal(bobMe.data.logs.length, 0);
+});
+
+await test('session length and score bounds are validated', async () => {
+  const badMinutes = await callJson('/logs', { method: 'POST', cookie: alice, body: { minutes: 0 } });
+  assert.equal(badMinutes.status, 400);
+
+  const me = await callJson('/me', { cookie: alice });
+  const engId = me.data.subjects.find((s) => s.code === 'ENG').id;
+  const badYear = await callJson('/papers', {
+    method: 'POST',
+    cookie: alice,
+    body: { subjectId: engId, year: 1999, paper: 'P1' }
+  });
+  assert.equal(badYear.status, 400);
+});
+
+await test('recovery code rotates the password and returns a fresh code', async () => {
+  const res = await callJson('/auth/recover', {
+    method: 'POST',
+    body: { email: 'bob@school.edu.hk', recoveryCode: 'TEST-CODE-1234', password: 'newpassword99' }
+  });
+  assert.equal(res.status, 200);
+  assert.equal(res.data.recoveryCode, 'NEW-CODE-5678');
+
+  const login = await callJson('/auth/login', {
+    method: 'POST',
+    body: { email: 'bob@school.edu.hk', password: 'newpassword99' }
+  });
+  assert.equal(login.status, 200);
+});
+
+await test('a wrong recovery code is refused', async () => {
+  const res = await callJson('/auth/recover', {
+    method: 'POST',
+    body: { email: 'alice@school.edu.hk', recoveryCode: 'WRONG-CODE', password: 'whatever12' }
+  });
+  assert.equal(res.status, 401);
+});
+
+await test('password hashing verifies the right password only', async () => {
+  const record = hashPassword('password123');
+  assert.equal(verifyPassword('password123', record), true);
+  assert.equal(verifyPassword('password124', record), false);
+});
+
+await test('deleting an account removes its records', async () => {
+  await callJson('/account', { method: 'DELETE', cookie: alice });
+  const after = await callJson('/me', { cookie: alice });
+  assert.equal(after.status, 401);
+  const bobMe = await callJson('/me', { cookie: bob });
+  assert.equal(bobMe.status, 200, 'the other student is unaffected');
+});
+
+console.log(`\n${passed} checks passed${process.exitCode ? ' — with failures' : ''}\n`);
