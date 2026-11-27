@@ -254,7 +254,7 @@ async function main() {
       api: `${API}/{category}`,
       note:
         'Raw-mark cut-offs per grade for each sitting, taken from DSE00. ' +
-        'Percentages are the mean of the last three sittings, computed per year ' +
+        'Percentages are the mean of the last five sittings, computed per year ' +
         "against that year's own full marks."
     },
     updated: new Date().toISOString().slice(0, 10),

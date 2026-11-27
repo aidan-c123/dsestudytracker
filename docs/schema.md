@@ -1,7 +1,7 @@
 # Data model
 
 The app stores everything in MongoDB Atlas, one database per app (`hkdse_desk`
-by default). Seven collections, all keyed by the authenticated student.
+by default). Eight collections, all keyed by the authenticated student.
 
 ## Isolation model
 

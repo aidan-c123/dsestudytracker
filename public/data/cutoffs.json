@@ -3,7 +3,7 @@
   "name": "DSE00 cut-off tables",
   "url": "https://www.dse00.com/p/core-cutoff.html",
   "api": "https://api-v2.dse00.com/cutoff/category/{category}",
-  "note": "Raw-mark cut-offs per grade for each sitting, taken from DSE00. Percentages are the mean of the last three sittings, computed per year against that year's own full marks."
+  "note": "Raw-mark cut-offs per grade for each sitting, taken from DSE00. Percentages are the mean of the last five sittings, computed per year against that year's own full marks."
  },
  "updated": "2026-11-26",
  "latestYear": 2026,
