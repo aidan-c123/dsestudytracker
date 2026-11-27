@@ -4,6 +4,8 @@ A private study dashboard for Hong Kong DSE candidates: a fifteen-year past
 paper matrix, a focus timer that logs itself, SBA deadlines, target vs.
 predicted levels, and a live countdown to the written papers.
 
+live at dse-starshooter.vercel.app
+
 - **Frontend:** plain HTML, CSS and ES modules — no build step, no framework.
 - **API:** one Vercel Node function (`api/index.js`) sharing a router at
   `server/routes.js`.
