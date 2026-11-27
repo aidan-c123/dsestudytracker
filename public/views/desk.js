@@ -8,6 +8,7 @@ import {
   streak, rangeMinutes, fmtDue, subjectById, usesAttainment, subjectAttainment,
   attainmentChip, attainmentLabel
 } from '../lib.js';
+import { unlocked, lockedCard } from '../gates.js';
 
 export function renderDesk() {
   const { user } = state.data;
@@ -302,5 +303,89 @@ export function renderDesk() {
         }
       </section>
     </div>
+
+    <div class="grid cols-2" style="margin-top:16px">
+      ${unlocked('pacing') ? pacingCard(state.pacing) : lockedCard('pacing', { icon: 'lock' })}
+      ${unlocked('diagnostics') ? diagnosticsCard(state.diagnostics) : lockedCard('diagnostics', { icon: 'lock' })}
+    </div>
   `;
+}
+
+/**
+ * The pacing plan, once the server has sent one.
+ *
+ * `state.pacing` is only populated for a plan that includes it, so this card
+ * renders from data the client could not have computed alone.
+ */
+function pacingCard(pacing) {
+  if (!pacing) {
+    return `<section class="card"><div class="card-head"><h2>Revision pacing</h2></div>
+      <div class="empty"><b>Loading your plan…</b>The weeks are worked out on the server.</div></section>`;
+  }
+  const weeks = pacing.thisWeek || [];
+  return `
+    <section class="card">
+      <div class="card-head">
+        <h2>Revision pacing</h2>
+        <span class="spacer"></span>
+        <span class="chip">${pacing.weeksLeft} weeks left</span>
+      </div>
+      <p class="card-note" style="margin:-6px 0 12px">Built backwards from your first paper. ${pacing.totalUntouched} papers still untouched.</p>
+      ${
+        weeks.length
+          ? `<div>${weeks
+              .map(
+                (w) => `<div class="session-item">
+                  <span class="session-dot"></span>
+                  <span style="min-width:0;flex:1">${esc(w.name)}</span>
+                  <span class="when">${w.papersThisWeek}/wk</span>
+                  <span class="muted" style="font-size:.74rem">${w.untouched} left</span>
+                </div>`
+              )
+              .join('')}</div>`
+          : '<div class="empty"><b>Every paper attempted.</b>Time to revisit the weakest ones.</div>'
+      }
+      ${pacing.tasks?.length
+        ? `<div class="card-note" style="margin-top:10px">Next deadline: <b>${esc(pacing.tasks[0].title)}</b> in ${pacing.tasks[0].days} days.</div>`
+        : ''}
+      <div class="card-note" style="margin-top:8px">${esc(pacing.note || '')}</div>
+    </section>`;
+}
+
+/**
+ * Mistake diagnostics. Refuses to draw a pattern from too few entries — a
+ * confident diagnosis from two lines would be worse than saying nothing.
+ */
+function diagnosticsCard(diag) {
+  if (!diag) {
+    return `<section class="card"><div class="card-head"><h2>Weak topics</h2></div>
+      <div class="empty"><b>Loading…</b>Grouped from your red-ink log.</div></section>`;
+  }
+  const kinds = diag.byKind || [];
+  const max = Math.max(1, ...kinds.map((k) => k.count));
+  return `
+    <section class="card">
+      <div class="card-head">
+        <h2>Weak topics</h2>
+        <span class="spacer"></span>
+        <span class="chip">${diag.total} entries</span>
+      </div>
+      ${
+        diag.enough && kinds.length
+          ? `<div>${kinds
+              .map(
+                (k) => `<div class="diag-row">
+                  <span class="diag-label">${esc(k.kind)}</span>
+                  <span class="diag-bar"><i style="width:${Math.round((k.count / max) * 100)}%"></i></span>
+                  <span class="diag-count">${k.count}</span>
+                </div>`
+              )
+              .join('')}</div>
+              ${diag.bySubject?.length
+                ? `<div class="card-note" style="margin-top:10px">Most in <b>${esc(diag.bySubject[0].name)}</b> (${diag.bySubject[0].count}).</div>`
+                : ''}`
+          : `<div class="empty"><b>Not enough yet.</b>${esc(diag.note || '')}</div>`
+      }
+      <div class="card-note" style="margin-top:8px">${esc(diag.note || '')}</div>
+    </section>`;
 }

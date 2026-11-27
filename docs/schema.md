@@ -24,6 +24,11 @@ request body. Two extra checks matter:
 
 `test/isolation.test.js` exercises both cases directly.
 
+Plans do not weaken this. Entitlement checks are a second gate, not a second
+data path: a gated endpoint refuses before it reads anything, and the documents
+it would have read are still filtered by `userId`. See
+[Where entitlements live](#where-entitlements-live).
+
 ## Collections
 
 ### `users`
@@ -39,7 +44,31 @@ request body. Two extra checks matter:
 | `resultsDate` | string | `YYYY-MM-DD` |
 | `dailyGoalMinutes` | int | 10–720 |
 | `theme` | string | `system` \| `light` \| `dark` |
+| `plan` | string | `free` \| `pass`; defaults to `free` for a new account |
+| `planUntil` | string \| null | optional ISO expiry of a pass; see below |
 | `createdAt` | date | |
+
+#### `plan` and `planUntil`
+
+The plan is resolved on the server by `planOf()` in
+`server/entitlements.js`, and the rules must be read before touching either
+field:
+
+- An unknown or missing `plan` string resolves to `free`. It never fails open.
+- `free` is absolute; `planUntil` is ignored for it.
+- A `pass` **with** `planUntil` expires: once that instant has passed, the
+  resolved plan is `free` again. A corrupt date also resolves to `free`.
+- A `pass` **without** `planUntil` does not expire. That is deliberate, for a
+  pass sold without an end date.
+- Expiry only changes which views are computed. Every document the student wrote
+  stays, because the free plan includes all of them.
+- `publicUser()` strips `planUntil` from anything sent to the client; the client
+  is told the resolved plan through `entitlementsFor()`. `plan` itself stays,
+  because the UI needs it to draw a locked card.
+
+Gated data is never written to `users`. Pacing and diagnostics are computed per
+request from the student's own documents, which is why a free account cannot
+reach them by editing a response in the browser.
 
 ### `sessions`
 
@@ -55,7 +84,7 @@ request body. Two extra checks matter:
 | --- | --- | --- |
 | `userId` | string | owner |
 | `code` | string | `CHIN`, `ENG`, `MATH`, `CSD`, `M1`, `M2`, `BIOL`, … |
-| `name` | string | display name, may be Chinese |
+| `name` | string | display name; English only, from the catalog in `server/util.js` |
 | `category` | string | `core` \| `elective` \| `extended` |
 | `targetLevel` | int \| null | 1–7 (7 renders as `5**`); null for CSD |
 | `predictedLevel` | int \| null | school estimate; when null the UI derives one from papers |
@@ -161,6 +190,22 @@ errorLogs    { userId: 1, createdAt: -1 }
 ```
 
 `scripts/init-db.js` creates these plus per-collection JSON Schema validators.
+
+## Where entitlements live
+
+Plans are not a collection. `plan` and `planUntil` sit on the `users` document,
+and everything else is derived per request:
+
+| Endpoint | Free | Pass |
+| --- | --- | --- |
+| `GET /me` | full workspace + `plan` | same |
+| `GET /pacing` | `402 { locked, feature }` | computed plan |
+| `GET /diagnostics` | `402` | computed counts |
+| `POST /import` | `402` | rows validated, then saved |
+
+The gated values are never stored, so there is no document for a free account to
+read. `/import` writes ordinary `pastPapers` documents through the same
+`validateAttempt` as a manual save.
 
 ## Why not Atlas RLS
 

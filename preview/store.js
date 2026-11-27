@@ -82,6 +82,9 @@ const store = {
       resultsDate: '2027-07-14',
       dailyGoalMinutes: 120,
       theme: 'system',
+      // Same default as the real store, so the preview shows the free plan
+      // honestly rather than a plan card with nothing in it.
+      plan: 'free',
       createdAt: new Date()
     };
     data.users.set(user._id, user);

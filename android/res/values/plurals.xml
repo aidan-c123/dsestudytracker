@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Counts a widget spells out. English has singular and plural; the
+         plural form is also used for zero, which reads correctly here
+         ("0 open tasks"). -->
+    <plurals name="widget_open_tasks">
+        <item quantity="one">%1$d task open · %2$d in the red-ink log</item>
+        <item quantity="other">%1$d tasks open · %2$d in the red-ink log</item>
+    </plurals>
+
+    <plurals name="widget_overdue">
+        <item quantity="one">%1$d task overdue</item>
+        <item quantity="other">%1$d tasks overdue</item>
+    </plurals>
+
+    <plurals name="widget_streak">
+        <item quantity="one">%1$d-day streak</item>
+        <item quantity="other">%1$d-day streak</item>
+    </plurals>
+
+    <plurals name="widget_entries">
+        <item quantity="one">%1$d entry written down</item>
+        <item quantity="other">%1$d entries written down</item>
+    </plurals>
+</resources>

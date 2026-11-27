@@ -3,6 +3,9 @@ import {
   LIMITS, sessionCookie, clearCookie, verifyPassword as verifyHash,
   attainment, usesAttainment, CSD_CODE, CSD_FIRST_YEAR, otherSource, paperRetired, gradeBands
 } from './util.js';
+import {
+  entitlementsFor, hasFeature, lockedResponse, buildPacing, buildDiagnostics, planOf
+} from './entitlements.js';
 
 /* --------------------------------- responses ------------------------------ */
 
@@ -133,7 +136,24 @@ export async function handleApi(request, path, injectedStore) {
     const userId = String(auth.user._id);
 
     if (path === '/me' && method === 'GET') {
-      return json(await store.loadWorkspace(auth.user));
+      const data = await store.loadWorkspace(auth.user);
+      // The client needs to know its own plan to draw a locked card, but this
+      // is presentation only: every gated endpoint refuses independently, so
+      // editing this response in DevTools unlocks nothing.
+      return json({ ...data, plan: entitlementsFor(auth.user) });
+    }
+
+    /* ------------------------------ gated views ------------------------------ */
+    // Computed only when the plan allows it, so a free response never contains
+    // the data a client-side toggle could reveal.
+    if (path === '/pacing' && method === 'GET') {
+      if (!hasFeature(auth.user, 'pacing')) return json(lockedResponse('pacing'), 402);
+      return json(buildPacing(await store.loadWorkspace(auth.user)));
+    }
+
+    if (path === '/diagnostics' && method === 'GET') {
+      if (!hasFeature(auth.user, 'diagnostics')) return json(lockedResponse('diagnostics'), 402);
+      return json(buildDiagnostics(await store.loadWorkspace(auth.user)));
     }
 
     if (path === '/me' && method === 'PATCH') {
@@ -323,6 +343,41 @@ export async function handleApi(request, path, injectedStore) {
       if (checked.error) return fail(checked.error, checked.status || 400);
       await store.savePaper(userId, checked.input);
       return json(await store.loadWorkspace(auth.user), 201);
+    }
+
+    /**
+     * Bulk import of a term's marks.
+     *
+     * Sits after `validateAttempt` because every row goes through exactly that
+     * validation — an import must not be a back door to a paper the app would
+     * refuse by hand (CSD with a level, Chinese P3 in 2024, a blank score).
+     * Rows that fail are reported individually rather than failing the batch,
+     * so a spreadsheet with three bad lines still loads the other twenty.
+     */
+    if (path === '/import' && method === 'POST') {
+      if (!hasFeature(auth.user, 'import')) return json(lockedResponse('import'), 402);
+
+      const rows = Array.isArray(body.rows) ? body.rows : null;
+      if (!rows) return fail('Send a "rows" array.');
+      if (rows.length === 0) return fail('That file had no rows.');
+      if (rows.length > 500) return fail('Import at most 500 rows at a time.');
+
+      const saved = [];
+      const skipped = [];
+      for (let i = 0; i < rows.length; i++) {
+        const checked = await validateAttempt(rows[i] || {});
+        if (checked.error) {
+          skipped.push({ row: i + 1, reason: checked.error });
+          continue;
+        }
+        await store.savePaper(userId, checked.input);
+        saved.push(i + 1);
+      }
+
+      return json(
+        { imported: saved.length, skipped, ...(await store.loadWorkspace(auth.user)) },
+        saved.length ? 201 : 400
+      );
     }
 
     const paperMatch = path.match(/^\/papers\/([\w-]+)$/);

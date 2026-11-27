@@ -37,7 +37,7 @@ echo "2/6 linking resources"
   --java "$out/gen" \
   --min-sdk-version 24 \
   --target-sdk-version 34 \
-  --version-code 2 --version-name 1.1 \
+  --version-code 3 --version-name 1.2 \
   "$out/res.zip"
 
 echo "3/6 compiling java"

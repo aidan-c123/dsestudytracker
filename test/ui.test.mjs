@@ -89,7 +89,20 @@ const db = {
   logs: [],
   tasks: [],
   errors: [],
-  otherPapers: []
+  otherPapers: [],
+  // The server sends the resolved plan with every workspace. Kept here so the
+  // gate cards are exercised against the shape the real `/me` returns.
+  plan: {
+    plan: 'free',
+    name: 'Free',
+    until: null,
+    features: [
+      { id: 'pacing', name: 'Revision pacing', summary: 'A week-by-week plan.', detail: '', unlocked: false },
+      { id: 'diagnostics', name: 'Weak-topic diagnostics', summary: 'Which mistakes cost marks.', detail: '', unlocked: false },
+      { id: 'import', name: 'Bulk import', summary: 'Load marks from a CSV.', detail: '', unlocked: false }
+    ],
+    alwaysFree: ['marks', 'matrix', 'export', 'widgets']
+  }
 };
 
 const workspace = () => JSON.parse(JSON.stringify(db));
@@ -1273,6 +1286,112 @@ check('tapping a logged cell opens the attempt with a Delete button', () => {
           }
         });
     });
+});
+
+await settle();
+
+/* ------------------------------ plan gates -------------------------------- */
+
+app.navigate('desk');
+await tick();
+
+check('a free plan shows locked cards instead of broken panels', () => {
+  const cards = $$('.locked-card');
+  if (cards.length < 2) throw new Error(`expected a locked card per gated view, found ${cards.length}`);
+  const text = $('#view').textContent;
+  if (!text.includes('Revision pacing')) throw new Error('the pacing card is missing its name');
+  if (!text.includes('Weak-topic diagnostics')) throw new Error('the diagnostics card is missing its name');
+  // The trust point: the student must be told their marks are not the thing behind the wall.
+  if (!/stays free/i.test(text)) throw new Error('the locked card does not say marks stay free');
+});
+
+check('no gated payload is in the workspace for a free plan', () => {
+  if (lib.state.pacing) throw new Error('pacing data was populated on the free plan');
+  if (lib.state.diagnostics) throw new Error('diagnostics data was populated on the free plan');
+});
+
+check('the gated views are not fetched on the free plan', async () => {
+  const asked = [];
+  const real = globalThis.fetch;
+  globalThis.fetch = async (input, opts) => {
+    asked.push(new URL(String(input), 'https://desk.example/').searchParams.get('__p') || '');
+    return real(input, opts);
+  };
+  await app.loadGatedViews();
+  globalThis.fetch = real;
+  if (asked.includes('pacing') || asked.includes('diagnostics')) {
+    throw new Error(`a free plan still asked the server for ${asked.join(', ')}`);
+  }
+});
+
+check('Settings explains the plan and keeps export ungated', () => {
+  app.navigate('settings');
+  const text = $('#view').textContent;
+  if (!text.includes('Your plan')) throw new Error('no plan card in Settings');
+  if (!text.includes('Bulk import')) throw new Error('the import feature is not described');
+  if (!text.includes('Download my data')) throw new Error('export disappeared from Settings');
+  if (!/not on sale yet/i.test(text)) throw new Error('the plan card implies a purchase that cannot happen');
+});
+
+/* --- the same workspace, once the plan includes the features --------------- */
+
+check('a pass draws the real pacing and diagnostics cards', async () => {
+  db.plan = {
+    ...db.plan,
+    plan: 'pass',
+    name: 'Exam pass',
+    features: db.plan.features.map((f) => ({ ...f, unlocked: true }))
+  };
+  lib.state.data.plan = db.plan;
+  db.papers = [
+    { id: 'p9', subjectId: 's3', year: 2025, paper: 'P1', percentage: 72, estimatedLevel: 4 }
+  ];
+  db.errors = [
+    { id: 'e1', subjectId: 's3', topic: 'Algebra', errorType: 'careless' },
+    { id: 'e2', subjectId: 's3', topic: 'Algebra', errorType: 'careless' },
+    { id: 'e3', subjectId: 's3', topic: 'Trig', errorType: 'careless' },
+    { id: 'e4', subjectId: 's3', topic: 'Trig', errorType: 'concept' }
+  ];
+
+  // The gated endpoints are separate, so the stub must answer them the way the
+  // server does — computed, not echoed.
+  const real = globalThis.fetch;
+  globalThis.fetch = async (input, opts) => {
+    const url = new URL(String(input), 'https://desk.example/');
+    const p = url.searchParams.get('__p');
+    if (p === 'pacing') {
+      return {
+        ok: true, status: 200,
+        text: async () => JSON.stringify({
+          daysLeft: 90, weeksLeft: 13, totalUntouched: 29,
+          thisWeek: [{ subjectId: 's3', name: 'Mathematics', untouched: 29, papersThisWeek: 2 }],
+          subjects: [], tasks: [], note: 'A pace, not a promise.'
+        }),
+        headers: { get: () => null }
+      };
+    }
+    if (p === 'diagnostics') {
+      return {
+        ok: true, status: 200,
+        text: async () => JSON.stringify({
+          total: 4, enough: true,
+          byKind: [{ kind: 'careless', count: 3 }, { kind: 'concept', count: 1 }],
+          bySubject: [{ subjectId: 's3', name: 'Mathematics', count: 4 }],
+          topKind: { kind: 'careless', count: 3 }, note: 'Grouped from your red-ink log.'
+        }),
+        headers: { get: () => null }
+      };
+    }
+    return real(input, opts);
+  };
+  await app.loadGatedViews();
+  globalThis.fetch = real;
+
+  app.navigate('desk');
+  const text = $('#view').textContent;
+  if ($$('.locked-card').length) throw new Error('a pass still shows locked cards');
+  if (!text.includes('13 weeks left')) throw new Error('the pacing card did not render its weeks');
+  if (!/3/.test(text)) throw new Error('the diagnostics counts did not render');
 });
 
 await settle();

@@ -38,6 +38,10 @@ import java.nio.charset.StandardCharsets;
  */
 public class MainActivity extends Activity {
 
+    /** An action a widget asked for, carried on the intent. */
+    static final String EXTRA_WIDGET_ACT = "starshooter.widget.act";
+    static final String EXTRA_WIDGET_MIN = "starshooter.widget.min";
+
     private static final String CREAM = "#F8F6F1";
     private static final String INK = "#0D1210";
 
@@ -118,6 +122,53 @@ public class MainActivity extends Activity {
         } else {
             web.loadUrl(startUrl);
         }
+
+        // A cold start from a widget: the hash carries the intent, so the page
+        // opens on the right view and runs the action itself.
+        deliverWidgetAction(getIntent());
+    }
+
+    /**
+     * A widget tapped while the app is already running. `singleTask` and
+     * `CLEAR_TOP` mean the existing activity is reused, so the action has to be
+     * passed across rather than arriving with a new `onCreate`.
+     */
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        deliverWidgetAction(intent);
+    }
+
+    /**
+     * Ask the page to run an action by name.
+     *
+     * The URL hash is written by the widget and already names the view, so a
+     * cold start needs nothing more. This covers the warm case, where the page
+     * is loaded and only the intent is new: dispatching an event is what
+     * `app.js` listens for, and it is also what keeps the current page scrolled
+     * where the student left it.
+     */
+    private void deliverWidgetAction(Intent intent) {
+        if (intent == null) return;
+        final String act = intent.getStringExtra(EXTRA_WIDGET_ACT);
+        if (act == null) return;
+        final String min = intent.getStringExtra(EXTRA_WIDGET_MIN);
+        // Clear it, so a rotation or a return to the activity does not repeat
+        // the action a second time.
+        intent.removeExtra(EXTRA_WIDGET_ACT);
+        intent.removeExtra(EXTRA_WIDGET_MIN);
+
+        if (web == null) return;
+        String js = "window.dispatchEvent(new CustomEvent('starshooter:widget-action',"
+                + " {detail: {act: " + quote(act) + ", min: " + quote(min) + "}}));";
+        web.post(() -> web.evaluateJavascript(js, null));
+    }
+
+    /** A JSON-safe string literal for the injected script. */
+    private static String quote(String value) {
+        if (value == null) return "null";
+        return "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\"";
     }
 
     @Override
@@ -332,6 +383,22 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public String platform() {
             return "android";
+        }
+
+        /**
+         * The widget snapshot, pushed by the page after every render.
+         *
+         * A widget cannot call the API and must never hold the database
+         * credentials, so the page — which already has the data — sends a small
+         * JSON summary. It is stored privately and the widgets redraw from it.
+         * Returns true so the page can tell whether the shell understood it.
+         */
+        @JavascriptInterface
+        public boolean widgetData(final String json) {
+            if (json == null || json.isEmpty()) return false;
+            WidgetData.save(MainActivity.this, json);
+            runOnUiThread(() -> WidgetUi.refreshAll(MainActivity.this));
+            return true;
         }
     }
 }

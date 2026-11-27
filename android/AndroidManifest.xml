@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="hk.starshooter.app"
-    android:versionCode="2"
-    android:versionName="1.1">
+    android:versionCode="3"
+    android:versionName="1.2">
 
     <!-- The app is a shell around the deployed site, so the only thing it needs
          is the network. No storage permission: files it saves go through the
@@ -32,5 +32,55 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Home-screen widgets. Each is a receiver the launcher binds to; the
+             metadata names the layout and the size it asks for. -->
+        <receiver
+            android:name=".CountdownWidget"
+            android:exported="true"
+            android:label="@string/widget_countdown_title">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_countdown_info" />
+        </receiver>
+
+        <receiver
+            android:name=".QuickLogWidget"
+            android:exported="true"
+            android:label="@string/widget_quicklog_title">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_quicklog_info" />
+        </receiver>
+
+        <receiver
+            android:name=".FocusWidget"
+            android:exported="true"
+            android:label="@string/widget_focus_title">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_focus_info" />
+        </receiver>
+
+        <receiver
+            android:name=".RedInkWidget"
+            android:exported="true"
+            android:label="@string/widget_redink_title">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_redink_info" />
+        </receiver>
     </application>
 </manifest>

@@ -26,7 +26,11 @@ function shape(doc) {
 function publicUser(doc) {
   if (!doc) return null;
   const { _id, pw, recovery, emailLower, ...rest } = doc;
-  return { id: String(_id), ...rest };
+  // `planUntil` is an internal expiry; the client is told the resolved plan and
+  // its end date through `entitlementsFor`, so a raw timestamp is not needed.
+  const { planUntil, ...visible } = rest;
+  void planUntil;
+  return { id: String(_id), ...visible };
 }
 
 const iso = (d) => (d instanceof Date ? d.toISOString() : d || null);
@@ -51,6 +55,9 @@ export async function createUser({ name, email, password }) {
     resultsDate: '2027-07-14',
     dailyGoalMinutes: 120,
     theme: 'system',
+    // Every account starts free, with the complete desk. A paid plan only ever
+    // adds the gated views; nothing a free student can already do is withheld.
+    plan: 'free',
     createdAt: now
   };
 

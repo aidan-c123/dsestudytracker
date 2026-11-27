@@ -307,6 +307,72 @@ const HANDLERS = {
     });
   },
 
+  'run-import': async () => {
+    const box = $('#import-csv');
+    const report = $('#import-report');
+    if (!box) return;
+    const parsed = parseMarksCsv(box.value);
+    if (parsed.error) {
+      toast(parsed.error, 'error');
+      return;
+    }
+    if (!parsed.rows.length) {
+      toast('No usable rows in that CSV.', 'error');
+      return;
+    }
+
+    // Map subject codes onto this student's own subjects. A code the student
+    // does not study is skipped and reported, rather than silently dropped.
+    const byCode = new Map(
+      state.data.subjects.map((s) => [String(s.code || '').toUpperCase(), s.id])
+    );
+    const rows = [];
+    const skipped = [];
+    parsed.rows.forEach((r, i) => {
+      const subjectId = byCode.get(r.code);
+      if (!subjectId) {
+        skipped.push({ row: i + 1, reason: `You do not have ${r.code} as a subject.` });
+        return;
+      }
+      rows.push({
+        subjectId,
+        year: r.year,
+        paper: r.paper,
+        score: r.score,
+        maxScore: r.max
+      });
+    });
+
+    if (!rows.length) {
+      if (report) report.textContent = skipped.map((s) => `Row ${s.row}: ${s.reason}`).join(' ');
+      toast('None of those subjects are on your desk.', 'error');
+      return;
+    }
+
+    try {
+      const data = await api('/import', { method: 'POST', body: { rows } });
+      await refresh(data);
+      const skippedAll = [...skipped, ...(data.skipped || [])];
+      const lines = [`${data.imported} row${data.imported === 1 ? '' : 's'} imported.`];
+      if (skippedAll.length) {
+        lines.push(
+          `${skippedAll.length} skipped: ` +
+            skippedAll.slice(0, 4).map((s) => `row ${s.row} (${s.reason})`).join('; ') +
+            (skippedAll.length > 4 ? '…' : '')
+        );
+      }
+      if (report) report.textContent = lines.join(' ');
+      box.value = '';
+      toast(`Imported ${data.imported}.`);
+    } catch (err) {
+      if (err.locked) {
+        toast('Bulk import is part of the exam pass.', 'error');
+      } else {
+        toast(errorText(err), 'error');
+      }
+    }
+  },
+
   'export-data': () => {
     const payload = JSON.stringify(state.data, null, 2);
     const url = URL.createObjectURL(new Blob([payload], { type: 'application/json' }));
@@ -349,6 +415,113 @@ export function bindActions(event, el) {
   event.preventDefault();
   Promise.resolve(handler(el, event)).catch((err) => toast(errorText(err), 'error'));
 }
+
+/**
+ * Parse the marks CSV.
+ *
+ * Files come out of Excel and Google Sheets, so this is deliberately lenient:
+ * an optional header row, commas or tabs, and either `subject` or `code` as the
+ * first column. It does not guess what a malformed row means — the row is left
+ * out and the reason is reported, which is more useful than a silent guess at a
+ * student's own marks.
+ */
+function parseMarksCsv(raw) {
+  const text = String(raw || '').trim();
+  if (!text) return { error: 'Paste some rows first.' };
+
+  const lines = text.split(/\r?\n/).filter((l) => l.trim());
+  if (lines.length > 500) return { error: 'Import at most 500 rows at a time.' };
+
+  const split = (line) =>
+    line.split(/\t|,/).map((c) => c.trim().replace(/^"|"$/g, ''));
+
+  const head = split(lines[0]).map((c) => c.toLowerCase());
+  const hasHeader = head.includes('subject') || head.includes('code');
+
+  const rows = [];
+  if (hasHeader) {
+    // Accept the columns in any order, so a sheet headed
+    // "Subject,Paper,Year,Score,Max" works as well as the documented order.
+    const idx = {
+      code: head.findIndex((c) => c === 'subject' || c === 'code'),
+      year: head.findIndex((c) => c === 'year'),
+      paper: head.findIndex((c) => c === 'paper'),
+      score: head.findIndex((c) => c === 'score' || c === 'marks'),
+      max: head.findIndex((c) => c === 'max' || c === 'total' || c === 'outof')
+    };
+    if (idx.year < 0 || idx.paper < 0 || idx.score < 0 || idx.max < 0) {
+      return { error: 'Header needs year, paper, score and max columns.' };
+    }
+    for (let i = 1; i < lines.length; i++) {
+      const c = split(lines[i]);
+      rows.push({
+        code: String(c[idx.code] || '').toUpperCase(),
+        year: Number(c[idx.year]),
+        paper: String(c[idx.paper] || '').toUpperCase(),
+        score: Number(c[idx.score]),
+        max: Number(c[idx.max])
+      });
+    }
+    return { rows };
+  }
+
+  // No header: subject,year,paper,score,max.
+  for (const line of lines) {
+    const c = split(line);
+    if (c.length < 5) continue;
+    rows.push({
+      code: String(c[0] || '').toUpperCase(),
+      year: Number(c[1]),
+      paper: String(c[2] || '').toUpperCase(),
+      score: Number(c[3]),
+      max: Number(c[4])
+    });
+  }
+  return { rows };
+}
+
+/* ------------------------------ widget taps ------------------------------- */
+/**
+ * Run the action a home-screen widget asked for.
+ *
+ * A widget cannot press a button, so it opens the app with `?act=` in the hash
+ * (`#/focus?act=focus&min=25`) and this maps that name onto the same handler
+ * the on-screen control uses. Reusing the handlers is the point: a widget must
+ * not grow a second, divergent way to log a block or an attempt.
+ *
+ * Returns false when the name means nothing, so the caller can land on the
+ * plain page rather than appear to have ignored the tap.
+ */
+export function runWidgetAction(act, params = {}) {
+  if (!state.data) return false;
+  switch (act) {
+    case 'log-paper':
+      openPaperModal();
+      return true;
+    case 'new-error':
+      openErrorModal();
+      return true;
+    case 'new-task':
+      openTaskModal();
+      return true;
+    case 'manual-log':
+      openManualLogModal();
+      return true;
+    case 'focus': {
+      // Only start a clock if one is not already running; tapping "start" twice
+      // should not restart the block the student is already in.
+      const t = timerState();
+      if (t.running) return true;
+      const minutes = Math.min(180, Math.max(5, Number(params.min) || state.timerPresetMinutes || 25));
+      state.timerPresetMinutes = minutes;
+      startFocus(minutes);
+      return true;
+    }
+    default:
+      return false;
+  }
+}
+
 
 /* ------------------------------ focus helpers ------------------------------ */
 

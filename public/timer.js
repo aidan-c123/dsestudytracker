@@ -3,6 +3,7 @@
    ============================================================ */
 
 import { $, $$, state, refresh, toast, api } from './lib.js';
+import { pushWidgets } from './widgets.js';
 
 const PRESETS = [
   { minutes: 25, label: '25' },
@@ -68,6 +69,7 @@ export function startTimer({ minutes, mode = 'focus', subjectId = null, label = 
   persist();
   ensureTicker();
   paintTimer();
+  pushWidgets();
   toast(mode === 'break' ? `Break started — ${minutes} minutes.` : `Focus block started — ${minutes} minutes.`);
 }
 
@@ -80,6 +82,7 @@ export function pauseTimer() {
   timer.paused = true;
   persist();
   paintTimer();
+  pushWidgets();
   toast('Timer paused. The clock is frozen, not reset.');
 }
 
@@ -98,6 +101,7 @@ export function stopTimer({ silent = false } = {}) {
   timer = null;
   persist();
   paintTimer();
+  pushWidgets();
   if (!silent) toast('Timer cleared without logging.');
 }
 

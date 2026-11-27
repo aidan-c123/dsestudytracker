@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Widget picker metadata. Sizes follow the launcher cell grid: one cell is about
+  70dp, so these give a 2x2 and a 4x2 footprint that neither overflows nor
+  leaves dead space on a typical phone.
+-->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:initialLayout="@layout/widget_countdown"
+    android:minWidth="110dp"
+    android:minHeight="110dp"
+    android:targetCellWidth="2"
+    android:targetCellHeight="2"
+    android:resizeMode="horizontal|vertical"
+    android:widgetCategory="home_screen"
+    android:description="@string/widget_description_countdown"
+    android:updatePeriodMillis="1800000" />

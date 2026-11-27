@@ -34,6 +34,9 @@ public/lib.js         shared helpers, API client, grading, modal
 public/cutoffs.js     reads the published boundaries, per paper and per year
 public/timer.js       timer state machine, persists across navigation
 public/native.js      the Android shell hooks (no-op in a browser)
+public/widgets.js     the home-screen widget snapshot (inert in a browser)
+public/gates.js       plan checks and the locked-view card
+server/entitlements.js  plans, feature catalogue, pacing and diagnostics
 public/views/         desk, papers, focus, tasks, settings
 public/data/cutoffs.json   published DSE boundaries, regenerated yearly
 public/manifest.webmanifest  installable-app metadata
@@ -47,9 +50,11 @@ scripts/fetch-cutoffs.mjs  refreshes the published boundaries from DSE00
 schema.sql            equivalent Postgres/Supabase schema with RLS policies
 docs/schema.md        data model and isolation model
 test/isolation.test.js     41 API checks, including cross-account attempts
-test/ui.test.mjs           61 browser-level checks
+test/ui.test.mjs           66 browser-level checks
 test/cutoffs.test.mjs      9 grading checks
 test/native.test.mjs       6 Android-shell checks
+test/widgets.test.mjs      17 widget checks
+test/plans.test.js         17 paywall checks, including DevTools bypass
 ```
 
 ---
@@ -73,14 +78,17 @@ To check behaviour without a database:
 npm run check                        # syntax check the server files
 npm run test                         # 41 isolation checks, in-memory store
 node test/cutoffs.test.mjs           # 9 grading checks
-npm run test:ui                      # 61 UI checks
+npm run test:ui                      # 66 UI checks
 npm run test:native                  # 6 Android-shell checks
+npm run test:widgets                 # 17 widget checks
+npm run test:plans                   # 17 paywall checks
 ```
 
-`npm install` is enough — jsdom ships as a regular dependency so the two
+`npm install` is enough — jsdom ships as a regular dependency so the
 browser-level suites run without extra setup. If `node_modules` is missing they
 print `skipped` and exit 0, which looks like a pass. Read the check count, not
-just the exit code.
+just the exit code. A Linux check job starts on a fresh disk, so `npm install`
+and the test run must happen in the **same** job.
 
 ---
 
@@ -194,7 +202,8 @@ Android Studio. Full notes, including how to change the URL, are in
 
 | | |
 |---|---|
-| Size | ~50 KB |
+| Size | ~79 KB |
+| Version | 1.2 (versionCode 3) |
 | Android | 7.0 (API 24) and newer |
 | Keys to configure | none |
 | Update path | redeploy the site, or rebuild the APK for shell changes |
@@ -203,9 +212,77 @@ Android Studio. Full notes, including how to change the URL, are in
 existing app when it is signed with the same key. Losing it means users must
 uninstall before installing a newer build.
 
+### Home-screen widgets
+
+Four widgets ship in the APK, added from the launcher's widget picker:
+
+| Widget | Shows | Tap does |
+|---|---|---|
+| **Countdown** | Days to the first written paper, the date, and results day | Opens the Desk |
+| **Quick log** | Open-task and red-ink counts | Log a paper, add a red-ink entry, or create a task |
+| **Focus** | Minutes done today against the goal, or the time left in a running block | Starts a 25-minute block, or opens the timer |
+| **Red-ink log** | The three most recent mistakes, with a count | Opens the log, or adds an entry |
+
+A widget cannot call the API and must never hold the database credentials, so
+the page pushes a small JSON snapshot across the bridge and the shell draws the
+widgets from that. Two consequences:
+
+- **A widget is as fresh as the last time the app was open**, so each one prints
+  when it last synced. The countdown is the exception: it receives the exam
+  instant and keeps counting by itself.
+- **The snapshot holds counts and dates, not marks.** A widget is readable on a
+  locked phone, so levels, percentages and the account email are deliberately
+  left out. The red-ink topics are the one exception, because reminding you of a
+  mistake is the whole point of that widget.
+
+Widget taps deep-link with `#/view?act=action`, which the page runs through the
+same handlers its own buttons use. Signing out blanks every widget.
+
 Inside the app, the back gesture walks the app's screens first, the session
 survives cold starts, and the recovery code and JSON export are written to
 Downloads — a WebView cannot follow those in-memory links on its own.
+
+---
+
+## Plans
+
+StarShooter is free, and the part you would use every day stays free.
+
+| | Free | Exam pass |
+|---|---|---|
+| All four cores, electives, M1/M2 | ✓ | ✓ |
+| Fifteen-year past-paper matrix | ✓ | ✓ |
+| Logging a paper, with levels or Attained | ✓ | ✓ |
+| Focus timer and session log | ✓ | ✓ |
+| SBA deadlines and exam countdown | ✓ | ✓ |
+| Target vs. predicted level | ✓ | ✓ |
+| Red-ink mistake log | ✓ | ✓ |
+| Export my data as JSON | ✓ | ✓ |
+| Revision pacing | — | ✓ |
+| Weak-topic diagnostics | — | ✓ |
+| Bulk CSV import | — | ✓ |
+
+Three things are deliberately **not** for sale, because charging for them would
+be selling either public data or the student's own records: the past-paper
+matrix (it comes from published DSE00 tables), the predicted-level engine, and
+data export. "What-if" target levels are also free, since they are arithmetic on
+the published cut-offs.
+
+The gates are enforced on the server, not in the page. A free account asking for
+`/pacing`, `/diagnostics` or `/import` gets `402` with the feature name, and the
+gated data is never sent at all — so nothing can be unlocked by editing the
+page in a browser's developer tools. `test/plans.test.js` asserts exactly that.
+
+**Nothing is on sale yet.** There is no payment provider, so every account is on
+the free plan and the pass cannot be bought or lost. A brand-new account is
+created with `plan: 'free'`.
+
+Two things to know before selling it:
+
+- **Vercel Hobby is for non-commercial projects.** Charging for the app means
+  moving to a paid plan or another host first.
+- An exam pass with an end date uses `planUntil`; an expired or unreadable one
+  drops back to free and **keeps every mark** logged during the pass.
 
 ---
 
@@ -218,6 +295,8 @@ Downloads — a WebView cannot follow those in-memory links on its own.
 - State-changing requests must be JSON and same-origin (CSRF guard).
 - Every query is scoped by the session's `userId`. Foreign ids return `403` or
   `404`, never another student's data.
+- Plan checks are server-side. A gated endpoint refuses on its own, so the
+  locked state does not depend on the page behaving.
 - Deleting an account removes its subjects, papers, sessions, tasks and logs.
 - **Rotate any password that has been pasted into a chat, issue tracker or
   commit.** Atlas → Database Access → Edit user → Autogenerate.

@@ -3,6 +3,7 @@
    ============================================================ */
 
 import { $, esc, icon, api, state, hooks, applyTheme, openModal, toast, submitting, errorText } from './lib.js';
+import { clearWidgets } from './widgets.js';
 
 const root = document.getElementById('root');
 let tab = 'login';
@@ -254,6 +255,9 @@ export async function signOut() {
   tab = 'login';
   history.replaceState(null, '', '#/');
   renderAuth('');
+  // Home-screen widgets are readable without unlocking on some launchers, so
+  // signing out must blank them rather than leave a count behind.
+  clearWidgets();
   toast('Signed out.');
 }
 

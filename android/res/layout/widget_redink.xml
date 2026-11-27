@@ -1,0 +1,153 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Red-ink widget: the mistakes written down, three at a time.
+
+  The only widget that shows content rather than a figure, which is the point —
+  a topic you keep losing marks on is worth seeing every time the phone unlocks.
+  Rows are hidden from Java when there are fewer than three entries.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@drawable/widget_card"
+    android:padding="12dp">
+
+    <TextView
+        android:id="@+id/widget_title"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/widget_redink_title"
+        android:textColor="#6B7770"
+        android:textSize="10sp"
+        android:letterSpacing="0.08"
+        android:textAllCaps="true"
+        android:maxLines="1" />
+
+    <TextView
+        android:id="@+id/widget_sub"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="1dp"
+        android:textColor="#141A17"
+        android:textSize="11sp"
+        android:maxLines="1"
+        android:ellipsize="end" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:orientation="vertical"
+        android:layout_marginTop="6dp">
+
+        <LinearLayout
+            android:id="@+id/redink_row_1"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <View
+                android:id="@+id/redink_dot_1"
+                android:layout_width="5dp"
+                android:layout_height="5dp"
+                android:layout_marginEnd="7dp"
+                android:background="@drawable/widget_dot" />
+
+            <TextView
+                android:id="@+id/redink_text_1"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:textColor="#141A17"
+                android:textSize="11sp"
+                android:maxLines="1"
+                android:ellipsize="end" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/redink_row_2"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <View
+                android:id="@+id/redink_dot_2"
+                android:layout_width="5dp"
+                android:layout_height="5dp"
+                android:layout_marginEnd="7dp"
+                android:background="@drawable/widget_dot" />
+
+            <TextView
+                android:id="@+id/redink_text_2"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:textColor="#141A17"
+                android:textSize="11sp"
+                android:maxLines="1"
+                android:ellipsize="end" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/redink_row_3"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <View
+                android:id="@+id/redink_dot_3"
+                android:layout_width="5dp"
+                android:layout_height="5dp"
+                android:layout_marginEnd="7dp"
+                android:background="@drawable/widget_dot" />
+
+            <TextView
+                android:id="@+id/redink_text_3"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:textColor="#141A17"
+                android:textSize="11sp"
+                android:maxLines="1"
+                android:ellipsize="end" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/redink_add"
+        android:layout_width="match_parent"
+        android:layout_height="26dp"
+        android:layout_marginTop="5dp"
+        android:orientation="horizontal"
+        android:gravity="center"
+        android:background="@drawable/widget_row">
+
+        <TextView
+            android:id="@+id/redink_add_label"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/widget_redink_add"
+            android:textColor="#A33A2E"
+            android:textSize="11sp"
+            android:textStyle="bold"
+            android:maxLines="1" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/widget_saved"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="3dp"
+        android:textColor="#98A29C"
+        android:textSize="9sp"
+        android:maxLines="1"
+        android:ellipsize="end" />
+</LinearLayout>

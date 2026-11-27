@@ -12,8 +12,9 @@ import { renderPapers } from './views/papers.js';
 import { renderFocus } from './views/focus.js';
 import { renderTasks } from './views/tasks.js';
 import { renderSettings } from './views/settings.js';
-import { bindActions, bindViewExtras } from './actions.js';
+import { bindActions, bindViewExtras, runWidgetAction } from './actions.js';
 import { paintTimer } from './timer.js';
+import { pushWidgets } from './widgets.js';
 
 const root = document.getElementById('root');
 
@@ -102,6 +103,35 @@ function currentViewFromHash() {
   return VIEWS[id] ? id : 'desk';
 }
 
+/**
+ * The action a widget asked for, from a hash like `#/focus?act=focus&min=25`.
+ *
+ * Widgets deep-link this way because a WebView cannot be handed a button press:
+ * the shell loads a URL, so the URL has to carry the intent. A plain page load
+ * has no `act` and this is empty.
+ */
+function currentWidgetAction() {
+  const raw = (window.location.hash || '').replace(/^#\/?/, '');
+  const q = raw.split('?')[1];
+  if (!q) return null;
+  let params;
+  try {
+    params = new URLSearchParams(q);
+  } catch {
+    return null;
+  }
+  const act = params.get('act');
+  if (!act) return null;
+  return { act, min: params.get('min') };
+}
+
+/** Clear `?act=` from the URL so a reload does not repeat the action. */
+function consumeWidgetAction() {
+  if (!currentWidgetAction()) return;
+  const view = currentViewFromHash();
+  history.replaceState(null, '', `#/${view}`);
+}
+
 export function syncNav() {
   if (!state.data) return;
   $$('[data-nav]').forEach((el) => {
@@ -144,6 +174,10 @@ export function renderView() {
   if (timerSelect && state.timerSubject) timerSelect.value = state.timerSubject;
   paintCountdown();
   paintTimer();
+  // Every render is a chance the widgets are out of date — a paper logged, a
+  // block finished, a task ticked. Pushing here keeps them within one render of
+  // the page instead of waiting for the next launch.
+  pushWidgets();
 }
 
 export function renderApp() {
@@ -159,6 +193,20 @@ export function renderApp() {
   renderView();
   startTicker();
   bindShell();
+  runPendingWidgetAction();
+}
+
+/**
+ * A widget opened the app with an intent in the URL. Act on it once the shell
+ * and the view exist, then strip it from the URL so a reload is a plain page.
+ */
+function runPendingWidgetAction() {
+  const pending = currentWidgetAction();
+  if (!pending) return;
+  consumeWidgetAction();
+  // An unknown action is not an error worth a toast; the student lands on the
+  // page they tapped for and can use it normally.
+  runWidgetAction(pending.act, { min: pending.min });
 }
 
 function bindShell() {
@@ -215,6 +263,10 @@ hooks.afterAuth = renderApp;
 export async function boot() {
   hooks.renderApp = renderApp;
   bindGlobal();
+  // Java cannot press a button, so it asks the page to run an action by name.
+  // The listener above handles the event; this is the direct entry point for a
+  // shell that would rather call a function than dispatch one.
+  window.__starshooterRunAction = (act, min) => runWidgetAction(act, { min });
   // Cut-offs are a data file, not a network API, so they can load alongside
   // the session. A failure leaves the built-in bands in place.
   loadCutoffs();
@@ -227,6 +279,11 @@ export async function boot() {
     state.data = data;
     state.paperSubjectId = data.subjects[0]?.id || null;
     renderApp();
+    // The gated views are separate endpoints, because the server only computes
+    // them when the plan allows. Fetched after the first paint so a locked plan
+    // never waits on them, and a failure leaves the cards empty rather than
+    // breaking the desk.
+    loadGatedViews();
   } catch (err) {
     if (err.status === 401) {
       renderAuth('');
@@ -234,6 +291,27 @@ export async function boot() {
       renderAuth('Cannot reach the study desk right now. Check your connection and reload.');
     }
   }
+}
+
+/**
+ * Fetch whatever the plan unlocks.
+ *
+ * A 402 is the expected answer on the free plan and is not an error — it means
+ * the card stays locked, which is the correct state to draw.
+ */
+export async function loadGatedViews() {
+  if (!state.data) return;
+  const plan = state.data.plan || { features: [] };
+  const has = (id) => Boolean(plan.features?.find((f) => f.id === id)?.unlocked);
+  if (!has('pacing') && !has('diagnostics')) return;
+
+  const [pacing, diagnostics] = await Promise.all([
+    has('pacing') ? api('/pacing').catch(() => null) : null,
+    has('diagnostics') ? api('/diagnostics').catch(() => null) : null
+  ]);
+  state.pacing = pacing;
+  state.diagnostics = diagnostics;
+  if (state.view === 'desk') renderView();
 }
 
 let globalBound = false;
@@ -247,6 +325,9 @@ function bindGlobal() {
     state.view = next;
     syncNav();
     renderView();
+    // Navigating to a page that carries an intent (the widget's own link, or a
+    // back-navigation to one) should honour it, not just change the view.
+    runPendingWidgetAction();
   });
 
   document.addEventListener('click', async (e) => {
@@ -258,6 +339,14 @@ function bindGlobal() {
       return;
     }
     bindActions(e, el);
+  });
+
+  // A widget tapped while the app is already open arrives as a fresh intent,
+  // not a page load, so the Java shell leaves the URL on the page and calls
+  // this instead. It runs the same handler the URL path would.
+  window.addEventListener('starshooter:widget-action', (e) => {
+    const { act, min } = e.detail || {};
+    if (act) runWidgetAction(act, { min });
   });
 
   document.addEventListener('keydown', (e) => {

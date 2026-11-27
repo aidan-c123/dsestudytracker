@@ -48,6 +48,54 @@ place of a removed attempt — an older bug did exactly this and left ghost rows
 `removePaperCell()` exists because the matrix deletes by cell (subject, year,
 paper), not by row id, so a replaced row cannot survive a delete.
 
+### A gate is only real if it withholds data
+
+Plans live in `server/entitlements.js`. Two rules, and breaking either one makes
+the paywall dishonest rather than merely broken:
+
+- **The free desk stays whole.** Every mark, the full fifteen-year matrix, the
+  red-ink log and the JSON export are free and stay free. They are not degraded
+  to be sold back. `test/plans.test.js` asserts this for a free account.
+- **The server refuses, not the stylesheet.** The whole workspace arrives in one
+  `GET /me`, so a lock drawn in CSS is bypassed by opening DevTools. Gated views
+  are separate endpoints (`/pacing`, `/diagnostics`, `/import`) that answer
+  `402 { locked: true, feature }` on a free plan. A free response must contain
+  no `pacing` or `diagnostics` key at all — if one appears, the gate is theatre.
+
+Consequences worth keeping:
+
+- `entitlementsFor()` is presentation only. It names what is locked; it carries
+  no field a client could flip to unlock anything. Never add `canWrite`,
+  `isAdmin` or similar to that payload.
+- `planOf()` falls back to `free` for an unknown plan string and for a corrupt
+  `planUntil`. It must never fail open. A `pass` with no `planUntil` does not
+  expire — that is deliberate, for a pass sold without an end date.
+- `publicUser()` strips `planUntil`, because it is an internal expiry. The
+  client learns the resolved plan through `entitlementsFor`.
+- Every mutating route answers with a bare workspace, which has no `plan`.
+  `refresh()` in `lib.js` keeps the previous plan for that reason; without it a
+  save silently relocks the gated views.
+- Bulk import runs each row through the same `validateAttempt` as a manual save.
+  An import must not be a back door to a paper the form would refuse (CSD with
+  a level, Chinese P3 in 2024, a blank score). Bad rows are reported per row and
+  the batch continues; 500 rows maximum.
+- Diagnostics refuse to name a pattern below four entries (`enough: false`). A
+  confident diagnosis from two lines would be worse than silence.
+- **Not gated, on purpose:** the fifteen-year matrix (published DSE00 data),
+  the predictor, export, and "what-if" target levels. Tolling public data sends
+  students to the source for free, and improving the engine then locking it is
+  crippleware in exam season.
+- There is no payment provider yet, so nothing can be bought. The UI says so
+  rather than implying a purchase. If one is added, Vercel Hobby is
+  non-commercial and the app would need a paid host.
+
+### The service worker precaches by name
+
+`public/sw.js` lists the shell file by file. **A new `public/*.js` module must be
+added to its `SHELL` array and `VERSION` bumped**, or an installed phone keeps
+running an old shell that cannot resolve the new import and the page dies on
+load. `gates.js` was added this way (shell `v9`).
+
 ### Matrix cells are both "log" and "edit"
 
 Every cell renders one button with `data-act="log-paper"`, whether or not a
@@ -60,12 +108,14 @@ that fails if you remove the lookup.
 
 ```bash
 npm run test          # 41 isolation checks — needs no database
-npm run test:ui       # 61 UI checks — needs jsdom
+npm run test:ui       # 66 UI checks — needs jsdom
 npm run test:native   # 6 Android-shell checks — needs jsdom
+npm run test:widgets  # 17 widget checks — needs jsdom
+npm run test:plans    # 17 entitlement checks — needs no database
 node test/cutoffs.test.mjs   # 9 grading checks
 ```
 
-Run all four before claiming something is fixed. Two traps:
+Run all six before claiming something is fixed. Two traps:
 
 - `test/ui.test.mjs` supports async checks now. If you add a check that returns
   a promise, it is awaited; if you write a synchronous check that leaves work
@@ -94,6 +144,34 @@ The MongoDB URI stays in Vercel.
   the notch with `env(safe-area-inset-*)`. Keep that pairing: making the bars
   opaque again brings back a strip of the wrong colour.
 - `onBackPressed` walks WebView history before leaving the app.
+
+### Home-screen widgets
+
+Four providers — `CountdownWidget`, `QuickLogWidget`, `FocusWidget`,
+`RedInkWidget` — draw from a snapshot the page pushes, never from the API.
+
+- **The snapshot is the only channel.** `public/widgets.js` builds it and hands
+  it to `StarShooterAndroid.widgetData(json)`; Java stores it in private
+  preferences and redraws. A widget must never be given a key or a database
+  URL — it is drawn by the launcher, outside the app's process.
+- **A widget is as stale as the last app launch**, so every provider stamps
+  `updatedLabel` (from `savedAt`) onto its card. Do not remove that: a count
+  from three days ago otherwise reads as today's. The countdown is the one
+  exception, because the page sends `exam.at` as epoch millis and the widget
+  re-derives the days from the clock.
+- **The snapshot carries counts and dates, not marks.** No levels, no
+  percentages, no email — widgets show on a locked phone. Red-ink topics are the
+  single deliberate exception. `test/widgets.test.mjs` asserts the absence.
+- **Widget taps deep-link as `#/view?act=action`**, and `runWidgetAction()` in
+  `actions.js` maps the name onto the same handler the on-screen button uses.
+  Never add a second divergent path for logging. Add a new action to that
+  switch *and* to the test's list of names, or the tap opens the app and does
+  nothing.
+- A warm app gets the action through `onNewIntent` → a
+  `starshooter:widget-action` event, because `singleTask` reuses the activity.
+- Signing out calls `clearWidgets()`, so no count is left on a shared phone.
+- `updatePeriodMillis` is 0 for the three page-fed widgets: they only change
+  when the app does, and a periodic wake-up would just redraw the same figures.
 
 ## Layout traps already hit
 

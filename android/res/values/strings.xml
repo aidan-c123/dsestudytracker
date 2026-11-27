@@ -4,4 +4,39 @@
     <!-- The address the app opens. Change this, rebuild, and the APK points
          somewhere else — no other file needs editing. -->
     <string name="app_url">https://dse-starshooter.vercel.app/</string>
+
+    <!-- Home-screen widgets. Each prints when the figures were last synced,
+         because a widget cannot refresh itself and a stale count must not read
+         as live. -->
+    <string name="widget_countdown_title">Countdown</string>
+    <string name="widget_days_to_go">days to the first written paper</string>
+    <string name="widget_days_past">The papers have begun</string>
+    <string name="widget_first_paper">First paper %1$s</string>
+    <string name="widget_results_on">Results %1$s</string>
+
+    <string name="widget_quicklog_title">Quick log</string>
+    <string name="widget_log_paper">Log a paper</string>
+    <string name="widget_red_ink">Red-ink entry</string>
+    <string name="widget_tasks">New task</string>
+    <string name="widget_no_open_tasks">Nothing due · %1$d in the red-ink log</string>
+
+    <string name="widget_focus_title">Focus</string>
+    <string name="widget_of_goal">of %1$s today</string>
+    <string name="widget_focus_start">Start a 25-minute block</string>
+    <string name="widget_focus_open">Back to the timer</string>
+    <string name="widget_block_running">Focus block running</string>
+    <string name="widget_block_paused">Paused</string>
+    <string name="widget_block_done">Done</string>
+
+    <string name="widget_redink_title">Red-ink log</string>
+    <string name="widget_redink_empty">Nothing written down yet</string>
+    <string name="widget_redink_add">Add a mistake</string>
+
+    <string name="widget_signed_out">Sign in to see your figures</string>
+    <string name="widget_no_data">Open the app once to set this up</string>
+    <string name="widget_updated">Updated %1$s</string>
+    <string name="widget_description_countdown">Days to the first written paper, and when results land.</string>
+    <string name="widget_description_quicklog">Log a paper, add a red-ink entry or create a task in one tap.</string>
+    <string name="widget_description_focus">Today’s study minutes, and one tap to start a focus block.</string>
+    <string name="widget_description_redink">The mistakes you wrote down, on your home screen.</string>
 </resources>

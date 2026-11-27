@@ -44,7 +44,63 @@ mode is needed.
   WebView's "webpage not available" wall.
 - The "Install on your phone" card is hidden, since there is nothing to add.
 
+## Home-screen widgets
+
+Four widgets, added from the launcher's widget picker.
+
+| Widget | Shows | Tap does |
+|---|---|---|
+| Countdown | Days to the first written paper, results day | Opens the Desk |
+| Quick log | Open-task and red-ink counts | Log a paper, add a red-ink entry, create a task |
+| Focus | Today's minutes against the goal, or time left in a running block | Starts a 25-minute block |
+| Red-ink log | The three most recent mistakes | Opens the log, or adds an entry |
+
+Each is an `AppWidgetProvider` with a layout in `res/layout/` and metadata in
+`res/xml/`. There is no Glance, no Jetpack: a `RemoteViews` layout and a plain
+`AppWidgetProvider`, to match the rest of this folder's no-dependencies rule.
+
+### How the data reaches them
+
+A widget runs in the launcher's process, so it cannot call the API and must
+never be given the connection string. The flow is one way:
+
+```
+app.js render → public/widgets.js snapshot()
+             → StarShooterAndroid.widgetData(json)      (MainActivity bridge)
+             → WidgetData.save()                        (private prefs)
+             → WidgetUi.refreshAll()                    (redraw)
+```
+
+`WidgetData` is the only thing that reads the snapshot. Nothing in a widget
+touches the network, and nothing needs a permission.
+
+**A widget is as fresh as the last time the app was opened.** Each one prints
+`Updated 14:05` from the snapshot's `savedAt`, so a stale figure reads as stale.
+The countdown is the exception: it is sent the exam instant as epoch millis and
+keeps counting on its own, since a number of days does not change second by
+second.
+
+The snapshot carries counts and dates only — no levels, percentages or email,
+because a widget is readable on a locked phone. Red-ink topics are the one
+deliberate exception.
+
+### Taps
+
+A tap opens the app with `#/view?act=action`, for example
+`#/focus?act=focus&min=25`. `runWidgetAction()` in `public/actions.js` maps the
+name onto the same handler the on-screen button uses, so a widget can never
+diverge from the app. If the app is already running, `onNewIntent` dispatches a
+`starshooter:widget-action` event instead of reloading the page.
+
+Adding a widget action means three edits, and the test fails if you miss one:
+the name in `runWidgetAction()`, the deep link in the provider, and the list in
+`test/widgets.test.mjs`.
+
 ## Version bumps
 
 Change `android:versionCode` (must increase) and `android:versionName` in
-`AndroidManifest.xml` before shipping an update.
+`AndroidManifest.xml`, **and** the `--version-code` / `--version-name` flags in
+`build.sh` — `aapt2 link` takes them from the command line, so editing only the
+manifest has no effect on the built APK.
+
+Current: versionCode 3, versionName 1.2.
