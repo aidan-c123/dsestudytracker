@@ -11,7 +11,7 @@
        and a stale grade would be worse than an error.
    ============================================================ */
 
-const VERSION = 'v5';
+const VERSION = 'v6';
 const SHELL_CACHE = `starshooter-shell-${VERSION}`;
 const ASSET_CACHE = `starshooter-assets-${VERSION}`;
 

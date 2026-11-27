@@ -37,15 +37,23 @@ echo "2/6 linking resources"
   --java "$out/gen" \
   --min-sdk-version 24 \
   --target-sdk-version 34 \
-  --version-code 1 --version-name 1.0 \
+  --version-code 2 --version-name 1.1 \
   "$out/res.zip"
 
 echo "3/6 compiling java"
 find "$out/gen" "$here/java" -name '*.java' > "$out/sources.txt"
-javac -source 17 -target 17 -encoding UTF-8 \
-  -classpath "$jar" \
-  -d "$out/classes" \
-  @"$out/sources.txt" 2>&1 | grep -v "bootstrap class path" || true
+# The warnings about the bootstrap class path come from compiling against
+# android.jar rather than a JDK, and are expected; every other error stops the
+# build. Without this, a failed compile would still produce a signed APK from
+# whatever classes happened to exist.
+if ! javac -source 17 -target 17 -encoding UTF-8 \
+    -classpath "$jar" \
+    -d "$out/classes" \
+    @"$out/sources.txt" 2> "$out/javac.log"; then
+  grep -v "bootstrap class path" "$out/javac.log" || true
+  echo "compilation failed — no APK written"
+  exit 1
+fi
 
 echo "4/6 dexing"
 find "$out/classes" -name '*.class' > "$out/classes.txt"

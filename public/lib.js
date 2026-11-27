@@ -576,7 +576,7 @@ export function applyTheme(theme = 'system') {
     meta.name = 'theme-color';
     document.head.appendChild(meta);
   }
-  meta.content = effective === 'dark' ? '#121312' : '#f8f6f1';
+  meta.content = effective === 'dark' ? '#0d1210' : '#f8f6f1';
   // Remember the last painted theme so the next load can paint it before the
   // CSS runs, instead of flashing light first.
   try {

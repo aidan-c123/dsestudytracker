@@ -119,7 +119,7 @@ export function renderSettings() {
           <span class="avatar">${esc(initials(u.name))}</span>
         </div>
         <div class="table-wrap">
-          <table class="plain">
+          <table class="plain kv">
             <tbody>
               <tr><td class="muted">Email</td><td>${esc(u.email)}</td></tr>
               <tr><td class="muted">Joined</td><td>${fmtDate(u.createdAt, { day: 'numeric', month: 'long', year: 'numeric' })}</td></tr>

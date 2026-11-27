@@ -314,6 +314,11 @@ html[data-theme-swapping] *::after {
 .card-note { font-size: 0.81rem; color: var(--muted); margin-top: 2px; line-height: 1.55; }
 
 .grid { display: grid; gap: 16px; }
+/* Grid and stack children default to min-width:auto, which lets a wide table
+   inside one card widen the entire column — the page then scrolls sideways
+   and the tab bar slides off screen. Zero lets the card shrink to the column
+   and keeps the overflow where it belongs: inside .table-wrap. */
+.grid > *, .stack > * { min-width: 0; }
 .cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .stack { display: grid; gap: 16px; }
@@ -739,6 +744,11 @@ html[data-theme="dark"] select {
 
 .table-wrap { overflow-x: auto; }
 table.plain { width: 100%; border-collapse: collapse; font-size: 0.83rem; min-width: 480px; }
+/* A two-column key/value table has nothing to gain from a minimum width and
+   cannot scroll usefully on a phone, so it wraps instead. */
+table.plain.kv { min-width: 0; }
+table.plain.kv td { white-space: normal; overflow-wrap: anywhere; }
+table.plain.kv td:first-child { width: 38%; }
 table.plain th {
   text-align: left; font-size: 0.72rem;
   color: var(--muted); font-weight: 600; padding: 0 10px 7px; border-bottom: 1px solid var(--line-strong);
@@ -816,6 +826,14 @@ table.plain td.num { font-variant-numeric: tabular-nums; font-size: 0.8rem; }
 .session-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); flex: none; }
 .session-dot.break { background: var(--gold); }
 .session-item .when { margin-left: auto; color: var(--muted); font-size: 0.72rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* On a narrow phone the label takes the room it needs and the value drops to
+   its own line rather than pushing the row past the card. */
+@media (max-width: 480px) {
+  .session-item { flex-wrap: wrap; row-gap: 2px; }
+  .session-item > span:not(.session-dot):not(.when) { flex: 1 1 100%; min-width: 0; }
+  .session-item .when { margin-left: 18px; }
+  .session-item .icon-btn { margin-left: auto; }
+}
 
 /* ---------------------------------- tasks --------------------------------- */
 
@@ -965,11 +983,19 @@ html[data-theme="dark"] .toast.error { background: var(--warn); color: #1a0f0a; 
     display: flex; align-items: center; gap: 10px;
     position: sticky; top: 0; z-index: 40;
     padding: 10px 16px;
+    /* In the Android app the WebView is drawn under the status bar, so the
+       paper grid reaches the top of the screen. The header reserves that space
+       itself rather than letting content start beneath the clock. */
     padding-top: calc(10px + env(safe-area-inset-top));
+    /* The bar's own background must extend up through the notch, so the sticky
+       element is pulled up by the inset and padded back down by the same
+       amount. Net effect: same layout, background to the very top. */
+    margin-top: calc(-1 * env(safe-area-inset-top));
     background: var(--paper);
+    background-clip: padding-box;
     border-bottom: 1px solid var(--line);
   }
-  .mobile-head .brand { padding: 0; }
+  .mobile-head .brand { padding: 0; border-bottom: 0; margin-bottom: 0; }
   .mobile-head .brand-mark { width: 28px; height: 28px; border-radius: 6px; }
   .mobile-head .brand-sub { display: none; }
   .main { padding: 16px 14px calc(92px + env(safe-area-inset-bottom)); }

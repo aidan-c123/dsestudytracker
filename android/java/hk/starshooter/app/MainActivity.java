@@ -11,6 +11,8 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
 import android.provider.MediaStore;
+import android.view.View;
+import android.view.WindowManager;
 import android.webkit.CookieManager;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebResourceRequest;
@@ -60,9 +62,24 @@ public class MainActivity extends Activity {
             allowedHost = "";
         }
 
-        // Edge-to-edge with a bar colour that matches the page's paper.
-        getWindow().setStatusBarColor(Color.parseColor(CREAM));
-        getWindow().setNavigationBarColor(Color.parseColor(CREAM));
+        // Draw under both system bars, so the paper grid runs to the edges of
+        // the screen instead of stopping at a coloured strip. The page already
+        // pads for the notch through env(safe-area-inset-*), so its content
+        // stays clear of the clock and the gesture bar.
+        getWindow().setStatusBarColor(Color.TRANSPARENT);
+        getWindow().setNavigationBarColor(Color.TRANSPARENT);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            WindowManager.LayoutParams lp = getWindow().getAttributes();
+            lp.layoutInDisplayCutoutMode =
+                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
+            getWindow().setAttributes(lp);
+        }
+        View decor = getWindow().getDecorView();
+        decor.setSystemUiVisibility(
+                View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                        | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                        | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                        | View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR);
 
         FrameLayout root = new FrameLayout(this);
         root.setBackgroundColor(Color.parseColor(CREAM));
@@ -142,6 +159,19 @@ public class MainActivity extends Activity {
             web = null;
         }
         super.onDestroy();
+    }
+
+    /** Dark icons for the cream theme, light icons for the dark one. */
+    private void applyBarIcons(boolean dark) {
+        View decor = getWindow().getDecorView();
+        int flags = View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION;
+        if (!dark) flags |= View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !dark) {
+            flags |= View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
+        }
+        decor.setSystemUiVisibility(flags);
     }
 
     private final class ShellClient extends WebViewClient {
@@ -246,17 +276,13 @@ public class MainActivity extends Activity {
     }
 
     /**
-     * The page reports its theme so the system bars follow the app instead of
-     * staying cream while the rest of the screen is dark.
+     * The page reports its theme so the system-bar icons stay legible: dark
+     * icons on the cream paper, light icons on the dark one.
      */
     private final class Bridge {
         @JavascriptInterface
         public void setTheme(final String theme) {
-            runOnUiThread(() -> {
-                int colour = Color.parseColor("dark".equals(theme) ? INK : CREAM);
-                getWindow().setStatusBarColor(colour);
-                getWindow().setNavigationBarColor(colour);
-            });
+            runOnUiThread(() -> applyBarIcons("dark".equals(theme)));
         }
 
         /**
