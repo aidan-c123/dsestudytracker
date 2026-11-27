@@ -24,6 +24,10 @@ public class RedInkWidget extends AppWidgetProvider {
 
     private static final int MAX_ROWS = 3;
 
+    private static final int[] ROWS = {R.id.redink_row_1, R.id.redink_row_2, R.id.redink_row_3};
+    private static final int[] DOTS = {R.id.redink_dot_1, R.id.redink_dot_2, R.id.redink_dot_3};
+    private static final int[] TEXTS = {R.id.redink_text_1, R.id.redink_text_2, R.id.redink_text_3};
+
     @Override
     public void onUpdate(Context context, AppWidgetManager manager, int[] ids) {
         for (int id : ids) {
@@ -39,9 +43,16 @@ public class RedInkWidget extends AppWidgetProvider {
 
     private RemoteViews build(Context context, int widgetId, Bundle options) {
         JSONObject snapshot = WidgetData.load(context);
+        WidgetUi.Palette p = WidgetUi.palette(context, snapshot, options);
+
         RemoteViews views = WidgetUi.frame(context, R.layout.widget_redink,
                 context.getString(R.string.widget_redink_title),
-                WidgetUi.updatedLabel(snapshot, context));
+                WidgetUi.updatedLabel(snapshot, context), p);
+
+        views.setTextColor(R.id.widget_sub, p.ink);
+        for (int text : TEXTS) views.setTextColor(text, p.ink);
+        views.setInt(R.id.redink_add, "setBackgroundResource", WidgetUi.rowDrawable(p));
+        views.setTextColor(R.id.redink_add_label, p.red);
 
         views.setOnClickPendingIntent(R.id.widget_root,
                 WidgetUi.open(context, widgetId, "papers", null, null));
@@ -50,13 +61,11 @@ public class RedInkWidget extends AppWidgetProvider {
         views.setTextViewText(R.id.redink_add_label,
                 context.getString(R.string.widget_redink_add));
 
-        int[] rows = {R.id.redink_row_1, R.id.redink_row_2, R.id.redink_row_3};
-        int[] dots = {R.id.redink_dot_1, R.id.redink_dot_2, R.id.redink_dot_3};
-
         if (!WidgetData.signedIn(snapshot)) {
             views.setTextViewText(R.id.widget_sub, context.getString(R.string.widget_signed_out));
+            views.setTextColor(R.id.widget_sub, p.muted);
             for (int i = 0; i < MAX_ROWS; i++) {
-                views.setViewVisibility(rows[i], android.view.View.GONE);
+                views.setViewVisibility(ROWS[i], android.view.View.GONE);
             }
             return views;
         }
@@ -73,15 +82,15 @@ public class RedInkWidget extends AppWidgetProvider {
             JSONObject entry = latest == null || i >= latest.length()
                     ? null : latest.optJSONObject(i);
             if (entry == null || entry.optString("topic", "").isEmpty()) {
-                views.setViewVisibility(rows[i], android.view.View.GONE);
+                views.setViewVisibility(ROWS[i], android.view.View.GONE);
                 continue;
             }
-            views.setViewVisibility(rows[i], android.view.View.VISIBLE);
-            views.setTextViewText(rows[i], entry.optString("topic", ""));
+            views.setViewVisibility(ROWS[i], android.view.View.VISIBLE);
+            views.setTextViewText(TEXTS[i], entry.optString("topic", ""));
             // Careless mistakes get the gold dot, concept gaps the red one —
             // the same distinction the app's own list draws.
-            views.setInt(dots[i], "setBackgroundColor",
-                    "careless".equals(entry.optString("type")) ? WidgetUi.GOLD : WidgetUi.RED);
+            views.setInt(DOTS[i], "setBackgroundColor",
+                    "careless".equals(entry.optString("type")) ? p.gold : p.red);
         }
 
         return views;

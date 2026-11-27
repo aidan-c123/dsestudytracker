@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- The 5dp marker beside a red-ink entry. Its colour is set at draw time from
-     Java (gold for careless, red for a concept gap), so this is a plain oval. -->
+<!-- The dot beside a red-ink entry. Its colour is set at draw time from Java
+     (gold for careless, red for a concept gap), so this is a plain oval. -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="oval">
     <solid android:color="#A33A2E" />

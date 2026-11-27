@@ -19,7 +19,6 @@
     "test:ui": "node test/ui.test.mjs",
     "test:native": "node test/native.test.mjs",
     "test:widgets": "node test/widgets.test.mjs",
-    "test:plans": "node test/plans.test.js",
     "cutoffs": "node scripts/fetch-cutoffs.mjs"
   }
 }

@@ -1019,6 +1019,58 @@ await test('a delete cannot clear another student’s cell', async () => {
   assert.equal(kept.length, 1, 'Bob’s attempt survived');
 });
 
+await test('every account can read its own derived views', async () => {
+  const mine = await callJson('/pacing', { cookie: alice });
+  assert.equal(mine.status, 200, 'pacing must be open to a signed-in student');
+  assert.ok(Array.isArray(mine.data.thisWeek));
+
+  const diag = await callJson('/diagnostics', { cookie: alice });
+  assert.equal(diag.status, 200);
+  // Small sample: it must decline to name a pattern rather than invent one.
+  assert.equal(diag.data.enough, false);
+});
+
+await test('the derived views still refuse an anonymous request', async () => {
+  for (const path of ['/pacing', '/diagnostics']) {
+    const res = await call('/' + path.slice(1));
+    assert.equal(res.status, 401, `${path} must not be readable without a session`);
+  }
+});
+
+await test('bulk import is open, and each row is checked', async () => {
+  const me = await callJson('/me', { cookie: alice });
+  const chin = me.data.subjects.find((s) => s.code === 'CHIN');
+  const res = await callJson('/import', {
+    method: 'POST',
+    cookie: alice,
+    body: {
+      rows: [
+        { subjectId: chin.id, year: 2023, paper: 'P1', score: 58, maxScore: 100 },
+        // Chinese has no Paper 3 from 2024; the batch must report it, not save it.
+        { subjectId: chin.id, year: 2024, paper: 'P3', score: 70, maxScore: 100 }
+      ]
+    }
+  });
+  assert.equal(res.status, 201);
+  assert.equal(res.data.imported, 1);
+  assert.equal(res.data.skipped.length, 1);
+  assert.match(res.data.skipped[0].reason, /Paper 3|P3/i);
+});
+
+await test('import cannot write into another student’s subject', async () => {
+  const bobMe = await callJson('/me', { cookie: bob });
+  const bobsSubject = bobMe.data.subjects.find((s) => s.code === 'MATH');
+  const before = bobMe.data.papers.length;
+  const res = await callJson('/import', {
+    method: 'POST',
+    cookie: alice,
+    body: { rows: [{ subjectId: bobsSubject.id, year: 2022, paper: 'P1', score: 70, maxScore: 100 }] }
+  });
+  assert.equal(res.status, 400, 'every row was refused, so the batch reports nothing imported');
+  const after = await callJson('/me', { cookie: bob });
+  assert.equal(after.data.papers.length, before, 'nothing was attached to Bob');
+});
+
 await test('deleting an account removes its records', async () => {
   await callJson('/account', { method: 'DELETE', cookie: alice });
   const after = await callJson('/me', { cookie: alice });

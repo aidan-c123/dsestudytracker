@@ -1,6 +1,7 @@
 import { boot } from './app.js';
 import { isNativeApp, syncNativeTheme } from './native.js';
 import { toast } from './lib.js';
+import { pushWidgetsNow } from './widgets.js';
 
 boot();
 
@@ -13,7 +14,12 @@ boot();
 if (isNativeApp) {
   const painted = document.documentElement.dataset.theme;
   if (painted) syncNativeTheme(painted);
-  window.addEventListener('starshooter:theme', (e) => syncNativeTheme(e.detail));
+  window.addEventListener('starshooter:theme', (e) => {
+    syncNativeTheme(e.detail);
+    // The home-screen cards are drawn by Java from the snapshot, so a theme
+    // change needs a fresh snapshot even when no other figure moved.
+    pushWidgetsNow();
+  });
   window.addEventListener('starshooter:save-failed', () =>
     toast('Could not save that file. Copy the text instead.', 'error')
   );

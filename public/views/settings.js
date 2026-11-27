@@ -5,11 +5,9 @@
 import {
   esc, icon, state, topbar, fmtDate, initials, lvlLabel, usesAttainment, attainmentLabel
 } from '../lib.js';
-import { plan as planInfoOf, unlocked, lockedCard } from '../gates.js';
 
 export function renderSettings() {
   const u = state.data.user;
-  const planInfo = planInfoOf();
   // Inside the Android app there is nothing to install, so the card is skipped
   // rather than shown with a button that cannot work.
   const nativeApp = document.documentElement.dataset.nativeApp === 'android';
@@ -171,57 +169,16 @@ export function renderSettings() {
 
     <section class="card" style="margin-top:16px">
       <div class="card-head"><h2>Import marks</h2></div>
-      ${
-        unlocked('import')
-          ? `<p class="card-note" style="margin:-6px 0 12px">Paste a CSV of school or mock marks. Headers: <code>subject,year,paper,score,max</code>. Rows that fail are listed, and the rest still load.</p>
-             <div class="field">
-               <label for="import-csv" class="sr-only">CSV to import</label>
-               <textarea id="import-csv" rows="5" placeholder="CHIN,2024,P1,58,100&#10;ENG,2024,P2,71,100"></textarea>
-             </div>
-             <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px">
-               <button class="btn btn-primary" data-act="run-import">${icon('plus')} Import rows</button>
-               <span class="muted" style="font-size:.78rem">Your own marks, always exportable.</span>
-             </div>
-             <div id="import-report" class="card-note" style="margin-top:10px"></div>`
-          : `<p class="card-note" style="margin:-6px 0 0">Paste a CSV of school or mock marks instead of typing each paper.
-               <b>Your export is never gated</b> — this is the reverse direction, and it is part of the pass.</p>`
-      }
-    </section>
-
-    <section class="card" style="margin-top:16px">
-      <div class="card-head">
-        <h2>Your plan</h2>
-        <span class="spacer"></span>
-        <span class="chip">${esc(planInfo.name)}</span>
+      <p class="card-note" style="margin:-6px 0 12px">Paste a CSV of school or mock marks. Headers: <code>subject,year,paper,score,max</code>. Rows that fail are listed, and the rest still load.</p>
+      <div class="field">
+        <label for="import-csv" class="sr-only">CSV to import</label>
+        <textarea id="import-csv" rows="5" placeholder="CHIN,2024,P1,58,100&#10;ENG,2024,P2,71,100"></textarea>
       </div>
-      <p class="card-note" style="margin:-6px 0 12px">
-        The whole desk — every paper, every mark, the full matrix and your export — is free and stays free.
-        The exam pass adds planning and diagnostics on top.
-      </p>
-      <div class="plan-list">
-        ${(planInfo.features || [])
-          .map(
-            (f) => `<div class="plan-row">
-              <span class="plan-state ${f.unlocked ? 'on' : ''}">${f.unlocked ? '✓' : '·'}</span>
-              <span style="min-width:0;flex:1">
-                <b>${esc(f.name)}</b>
-                <span class="muted" style="display:block;font-size:.78rem;line-height:1.45">${esc(f.summary)}</span>
-              </span>
-              <span class="chip chip-ghost">${f.unlocked ? 'Unlocked' : 'Pass'}</span>
-            </div>`
-          )
-          .join('')}
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px">
+        <button class="btn btn-primary" data-act="run-import">${icon('plus')} Import rows</button>
+        <span class="muted" style="font-size:.78rem">Batch rows are checked one by one; the good ones still load.</span>
       </div>
-      <div class="card-note" style="margin-top:12px">
-        Never gated: your marks, the paper matrix, and data export.
-      </div>
-      ${
-        planInfo.plan === 'free'
-          ? `<div class="locked-foot" style="margin-top:12px">
-              <span class="muted" style="font-size:.8rem">No card is taken and nothing expires — the pass is not on sale yet.</span>
-            </div>`
-          : ''
-      }
+      <div id="import-report" class="card-note" style="margin-top:10px"></div>
     </section>
   `;
 }

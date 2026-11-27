@@ -35,8 +35,7 @@ public/cutoffs.js     reads the published boundaries, per paper and per year
 public/timer.js       timer state machine, persists across navigation
 public/native.js      the Android shell hooks (no-op in a browser)
 public/widgets.js     the home-screen widget snapshot (inert in a browser)
-public/gates.js       plan checks and the locked-view card
-server/entitlements.js  plans, feature catalogue, pacing and diagnostics
+server/insights.js    pacing and weak-topic diagnostics (free)
 public/views/         desk, papers, focus, tasks, settings
 public/data/cutoffs.json   published DSE boundaries, regenerated yearly
 public/manifest.webmanifest  installable-app metadata
@@ -49,12 +48,11 @@ scripts/init-db.js    creates Atlas collections, validators and indexes
 scripts/fetch-cutoffs.mjs  refreshes the published boundaries from DSE00
 schema.sql            equivalent Postgres/Supabase schema with RLS policies
 docs/schema.md        data model and isolation model
-test/isolation.test.js     41 API checks, including cross-account attempts
-test/ui.test.mjs           66 browser-level checks
+test/isolation.test.js     45 API checks, including cross-account attempts
+test/ui.test.mjs           67 browser-level checks
 test/cutoffs.test.mjs      9 grading checks
 test/native.test.mjs       6 Android-shell checks
-test/widgets.test.mjs      17 widget checks
-test/plans.test.js         17 paywall checks, including DevTools bypass
+test/widgets.test.mjs      21 widget checks
 ```
 
 ---
@@ -76,12 +74,11 @@ To check behaviour without a database:
 
 ```bash
 npm run check                        # syntax check the server files
-npm run test                         # 41 isolation checks, in-memory store
+npm run test                         # 45 isolation checks, in-memory store
 node test/cutoffs.test.mjs           # 9 grading checks
-npm run test:ui                      # 66 UI checks
+npm run test:ui                      # 67 UI checks
 npm run test:native                  # 6 Android-shell checks
-npm run test:widgets                 # 17 widget checks
-npm run test:plans                   # 17 paywall checks
+npm run test:widgets                 # 21 widget checks
 ```
 
 `npm install` is enough — jsdom ships as a regular dependency so the
@@ -202,8 +199,8 @@ Android Studio. Full notes, including how to change the URL, are in
 
 | | |
 |---|---|
-| Size | ~79 KB |
-| Version | 1.2 (versionCode 3) |
+| Size | ~83 KB |
+| Version | 1.3 (versionCode 4) |
 | Android | 7.0 (API 24) and newer |
 | Keys to configure | none |
 | Update path | redeploy the site, or rebuild the APK for shell changes |
@@ -238,51 +235,31 @@ widgets from that. Two consequences:
 Widget taps deep-link with `#/view?act=action`, which the page runs through the
 same handlers its own buttons use. Signing out blanks every widget.
 
+The cards follow the app's light or dark theme. Android cannot inherit a
+stylesheet, so the palettes are constants in `WidgetUi` and the snapshot carries
+the resolved theme; toggling the theme in the app redraws them immediately.
+
 Inside the app, the back gesture walks the app's screens first, the session
 survives cold starts, and the recovery code and JSON export are written to
 Downloads — a WebView cannot follow those in-memory links on its own.
 
 ---
 
-## Plans
+## What is free
 
-StarShooter is free, and the part you would use every day stays free.
+Everything. There is no paid tier, no plan field and no paywall to bypass.
 
-| | Free | Exam pass |
-|---|---|---|
-| All four cores, electives, M1/M2 | ✓ | ✓ |
-| Fifteen-year past-paper matrix | ✓ | ✓ |
-| Logging a paper, with levels or Attained | ✓ | ✓ |
-| Focus timer and session log | ✓ | ✓ |
-| SBA deadlines and exam countdown | ✓ | ✓ |
-| Target vs. predicted level | ✓ | ✓ |
-| Red-ink mistake log | ✓ | ✓ |
-| Export my data as JSON | ✓ | ✓ |
-| Revision pacing | — | ✓ |
-| Weak-topic diagnostics | — | ✓ |
-| Bulk CSV import | — | ✓ |
+That includes the three things that were once going to be gated — revision
+pacing, weak-topic diagnostics and bulk CSV import. They are computed on demand
+by `server/insights.js` and served to any signed-in account.
 
-Three things are deliberately **not** for sale, because charging for them would
-be selling either public data or the student's own records: the past-paper
-matrix (it comes from published DSE00 tables), the predicted-level engine, and
-data export. "What-if" target levels are also free, since they are arithmetic on
-the published cut-offs.
+`GET /pacing`, `GET /diagnostics` and `POST /import` still exist as separate
+endpoints, but the only thing they check is the session: asked without one they
+return `401`, exactly like `/me`. There is no `402` anywhere in the app.
 
-The gates are enforced on the server, not in the page. A free account asking for
-`/pacing`, `/diagnostics` or `/import` gets `402` with the feature name, and the
-gated data is never sent at all — so nothing can be unlocked by editing the
-page in a browser's developer tools. `test/plans.test.js` asserts exactly that.
-
-**Nothing is on sale yet.** There is no payment provider, so every account is on
-the free plan and the pass cannot be bought or lost. A brand-new account is
-created with `plan: 'free'`.
-
-Two things to know before selling it:
-
-- **Vercel Hobby is for non-commercial projects.** Charging for the app means
-  moving to a paid plan or another host first.
-- An exam pass with an end date uses `planUntil`; an expired or unreadable one
-  drops back to free and **keeps every mark** logged during the pass.
+Diagnostics still decline to name a pattern on thin evidence — fewer than four
+entries for a topic returns `enough: false` rather than a confident-sounding
+claim — because that is honesty about the data, not a gate.
 
 ---
 
@@ -295,8 +272,9 @@ Two things to know before selling it:
 - State-changing requests must be JSON and same-origin (CSRF guard).
 - Every query is scoped by the session's `userId`. Foreign ids return `403` or
   `404`, never another student's data.
-- Plan checks are server-side. A gated endpoint refuses on its own, so the
-  locked state does not depend on the page behaving.
+- Every endpoint requires a session, and `/pacing`, `/diagnostics` and `/import`
+  check nothing else — there is no plan to check. Isolation, not entitlement, is
+  what protects a record.
 - Deleting an account removes its subjects, papers, sessions, tasks and logs.
 - **Rotate any password that has been pasted into a chat, issue tracker or
   commit.** Atlas → Database Access → Edit user → Autogenerate.

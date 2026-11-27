@@ -89,20 +89,7 @@ const db = {
   logs: [],
   tasks: [],
   errors: [],
-  otherPapers: [],
-  // The server sends the resolved plan with every workspace. Kept here so the
-  // gate cards are exercised against the shape the real `/me` returns.
-  plan: {
-    plan: 'free',
-    name: 'Free',
-    until: null,
-    features: [
-      { id: 'pacing', name: 'Revision pacing', summary: 'A week-by-week plan.', detail: '', unlocked: false },
-      { id: 'diagnostics', name: 'Weak-topic diagnostics', summary: 'Which mistakes cost marks.', detail: '', unlocked: false },
-      { id: 'import', name: 'Bulk import', summary: 'Load marks from a CSV.', detail: '', unlocked: false }
-    ],
-    alwaysFree: ['marks', 'matrix', 'export', 'widgets']
-  }
+  otherPapers: []
 };
 
 const workspace = () => JSON.parse(JSON.stringify(db));
@@ -143,6 +130,29 @@ function serve(path, method, body) {
   if (path === 'papers' && method === 'POST') {
     db.papers.push({ id: `p${++seq}`, ...body, attemptedAt: new Date().toISOString() });
     return [201, workspace()];
+  }
+  // Mirrors the server: each row goes through the same rules as a manual save,
+  // bad rows are skipped and reported, and the batch still returns the desk.
+  if (path === 'import' && method === 'POST') {
+    const rows = Array.isArray(body?.rows) ? body.rows : [];
+    if (!rows.length) return [400, { error: 'That file had no rows.' }];
+    if (rows.length > 500) return [400, { error: 'Import at most 500 rows at a time.' }];
+    const skipped = [];
+    let imported = 0;
+    rows.forEach((r, i) => {
+      const subject = db.subjects.find((s) => s.id === r.subjectId);
+      if (!subject) {
+        skipped.push({ row: i + 1, reason: 'Pick one of your own subjects.' });
+        return;
+      }
+      if (subject.code === 'CHIN' && Number(r.year) >= 2024 && r.paper === 'P3') {
+        skipped.push({ row: i + 1, reason: 'Chinese has no P3 from 2024 onwards.' });
+        return;
+      }
+      db.papers.push({ id: `p${++seq}`, ...r, attemptedAt: new Date().toISOString() });
+      imported += 1;
+    });
+    return [imported ? 201 : 400, { imported, skipped, ...workspace() }];
   }
   const paperPatch = String(path).match(/^papers\/([\w-]+)$/);
   if (paperPatch && method === 'PATCH') {
@@ -1290,59 +1300,44 @@ check('tapping a logged cell opens the attempt with a Delete button', () => {
 
 await settle();
 
-/* ------------------------------ plan gates -------------------------------- */
+/* ------------------------------ derived views ----------------------------- */
 
 app.navigate('desk');
 await tick();
 
-check('a free plan shows locked cards instead of broken panels', () => {
-  const cards = $$('.locked-card');
-  if (cards.length < 2) throw new Error(`expected a locked card per gated view, found ${cards.length}`);
+check('every account gets pacing and diagnostics, with nothing locked', () => {
+  if ($$('.locked-card').length) throw new Error('a locked card is still on the desk');
   const text = $('#view').textContent;
-  if (!text.includes('Revision pacing')) throw new Error('the pacing card is missing its name');
-  if (!text.includes('Weak-topic diagnostics')) throw new Error('the diagnostics card is missing its name');
-  // The trust point: the student must be told their marks are not the thing behind the wall.
-  if (!/stays free/i.test(text)) throw new Error('the locked card does not say marks stay free');
+  if (!text.includes('Revision pacing')) throw new Error('the pacing card is missing');
+  if (!text.includes('Weak topics')) throw new Error('the diagnostics card is missing');
 });
 
-check('no gated payload is in the workspace for a free plan', () => {
-  if (lib.state.pacing) throw new Error('pacing data was populated on the free plan');
-  if (lib.state.diagnostics) throw new Error('diagnostics data was populated on the free plan');
+check('Settings offers the CSV import to everyone', () => {
+  app.navigate('settings');
+  const text = $('#view').textContent;
+  if (!text.includes('Import marks')) throw new Error('no import card in Settings');
+  if (!$('#import-csv')) throw new Error('the CSV box is missing');
+  if (!text.includes('Download my data')) throw new Error('export disappeared from Settings');
+  // The paywall is gone; no plan or pass wording should survive on the page.
+  if (/exam pass|your plan|unlocked|not on sale/i.test(text)) {
+    throw new Error('paywall wording is still in Settings');
+  }
 });
 
-check('the gated views are not fetched on the free plan', async () => {
+check('the derived views are requested for every account', async () => {
   const asked = [];
   const real = globalThis.fetch;
   globalThis.fetch = async (input, opts) => {
     asked.push(new URL(String(input), 'https://desk.example/').searchParams.get('__p') || '');
     return real(input, opts);
   };
-  await app.loadGatedViews();
+  await app.loadInsights();
   globalThis.fetch = real;
-  if (asked.includes('pacing') || asked.includes('diagnostics')) {
-    throw new Error(`a free plan still asked the server for ${asked.join(', ')}`);
-  }
+  if (!asked.includes('pacing')) throw new Error('pacing was not requested');
+  if (!asked.includes('diagnostics')) throw new Error('diagnostics was not requested');
 });
 
-check('Settings explains the plan and keeps export ungated', () => {
-  app.navigate('settings');
-  const text = $('#view').textContent;
-  if (!text.includes('Your plan')) throw new Error('no plan card in Settings');
-  if (!text.includes('Bulk import')) throw new Error('the import feature is not described');
-  if (!text.includes('Download my data')) throw new Error('export disappeared from Settings');
-  if (!/not on sale yet/i.test(text)) throw new Error('the plan card implies a purchase that cannot happen');
-});
-
-/* --- the same workspace, once the plan includes the features --------------- */
-
-check('a pass draws the real pacing and diagnostics cards', async () => {
-  db.plan = {
-    ...db.plan,
-    plan: 'pass',
-    name: 'Exam pass',
-    features: db.plan.features.map((f) => ({ ...f, unlocked: true }))
-  };
-  lib.state.data.plan = db.plan;
+check('a pacing plan and a mistake breakdown both render', async () => {
   db.papers = [
     { id: 'p9', subjectId: 's3', year: 2025, paper: 'P1', percentage: 72, estimatedLevel: 4 }
   ];
@@ -1353,8 +1348,8 @@ check('a pass draws the real pacing and diagnostics cards', async () => {
     { id: 'e4', subjectId: 's3', topic: 'Trig', errorType: 'concept' }
   ];
 
-  // The gated endpoints are separate, so the stub must answer them the way the
-  // server does — computed, not echoed.
+  // The endpoints are separate, so the stub answers them the way the server
+  // does — computed from the student's records.
   const real = globalThis.fetch;
   globalThis.fetch = async (input, opts) => {
     const url = new URL(String(input), 'https://desk.example/');
@@ -1384,14 +1379,39 @@ check('a pass draws the real pacing and diagnostics cards', async () => {
     }
     return real(input, opts);
   };
-  await app.loadGatedViews();
+  await app.loadInsights();
   globalThis.fetch = real;
 
   app.navigate('desk');
   const text = $('#view').textContent;
-  if ($$('.locked-card').length) throw new Error('a pass still shows locked cards');
   if (!text.includes('13 weeks left')) throw new Error('the pacing card did not render its weeks');
-  if (!/3/.test(text)) throw new Error('the diagnostics counts did not render');
+  if (!/careless/i.test(text)) throw new Error('the diagnostics kinds did not render');
+});
+
+check('diagnostics still refuse to name a pattern from a thin log', () => {
+  const thin = {
+    total: 3, enough: false,
+    byKind: [{ kind: 'careless', count: 3 }], bySubject: [],
+    topKind: null, note: 'Add 1 more entry before a pattern is worth reading.'
+  };
+  lib.state.diagnostics = thin;
+  app.navigate('desk');
+  const text = $('#view').textContent;
+  if (!/not enough yet/i.test(text)) throw new Error('a three-entry log drew a confident chart');
+});
+
+check('import writes through the same validation as a manual save', async () => {
+  app.navigate('settings');
+  const box = $('#import-csv');
+  if (!box) throw new Error('the CSV box is missing');
+  box.value = 'MATH,2024,P2,63,100';
+  const before = db.papers.length;
+  $('#modal-root').innerHTML = '';
+  await lib.api('/import', {
+    method: 'POST',
+    body: { rows: [{ subjectId: 's3', year: 2024, paper: 'P2', score: 63, maxScore: 100 }] }
+  });
+  if (db.papers.length !== before + 1) throw new Error('the imported row was not saved');
 });
 
 await settle();

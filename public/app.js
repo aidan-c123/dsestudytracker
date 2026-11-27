@@ -14,7 +14,7 @@ import { renderTasks } from './views/tasks.js';
 import { renderSettings } from './views/settings.js';
 import { bindActions, bindViewExtras, runWidgetAction } from './actions.js';
 import { paintTimer } from './timer.js';
-import { pushWidgets } from './widgets.js';
+import { pushWidgets, pushWidgetsNow } from './widgets.js';
 
 const root = document.getElementById('root');
 
@@ -179,7 +179,6 @@ export function renderView() {
   // the page instead of waiting for the next launch.
   pushWidgets();
 }
-
 export function renderApp() {
   if (!state.data) {
     renderAuth('');
@@ -279,11 +278,10 @@ export async function boot() {
     state.data = data;
     state.paperSubjectId = data.subjects[0]?.id || null;
     renderApp();
-    // The gated views are separate endpoints, because the server only computes
-    // them when the plan allows. Fetched after the first paint so a locked plan
-    // never waits on them, and a failure leaves the cards empty rather than
+    // The derived views are separate endpoints so the first paint does not wait
+    // on them. A failure leaves the cards with their loading note rather than
     // breaking the desk.
-    loadGatedViews();
+    loadInsights();
   } catch (err) {
     if (err.status === 401) {
       renderAuth('');
@@ -294,20 +292,17 @@ export async function boot() {
 }
 
 /**
- * Fetch whatever the plan unlocks.
+ * Fetch the derived views.
  *
- * A 402 is the expected answer on the free plan and is not an error — it means
- * the card stays locked, which is the correct state to draw.
+ * Both are computable for every account, so they are simply requested after the
+ * first paint. A failure is not fatal: the cards keep their loading note and
+ * the rest of the desk works.
  */
-export async function loadGatedViews() {
+export async function loadInsights() {
   if (!state.data) return;
-  const plan = state.data.plan || { features: [] };
-  const has = (id) => Boolean(plan.features?.find((f) => f.id === id)?.unlocked);
-  if (!has('pacing') && !has('diagnostics')) return;
-
   const [pacing, diagnostics] = await Promise.all([
-    has('pacing') ? api('/pacing').catch(() => null) : null,
-    has('diagnostics') ? api('/diagnostics').catch(() => null) : null
+    api('/pacing').catch(() => null),
+    api('/diagnostics').catch(() => null)
   ]);
   state.pacing = pacing;
   state.diagnostics = diagnostics;

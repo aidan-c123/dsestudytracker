@@ -50,7 +50,7 @@ Four widgets, added from the launcher's widget picker.
 
 | Widget | Shows | Tap does |
 |---|---|---|
-| Countdown | Days to the first written paper, results day | Opens the Desk |
+| Countdown | Days to the first written paper, as the hero figure, with the date and results day under it | Opens the Desk |
 | Quick log | Open-task and red-ink counts | Log a paper, add a red-ink entry, create a task |
 | Focus | Today's minutes against the goal, or time left in a running block | Starts a 25-minute block |
 | Red-ink log | The three most recent mistakes | Opens the log, or adds an entry |
@@ -84,6 +84,29 @@ The snapshot carries counts and dates only — no levels, percentages or email,
 because a widget is readable on a locked phone. Red-ink topics are the one
 deliberate exception.
 
+### Theme
+
+The cards follow the app's theme, light or dark. A widget cannot inherit CSS,
+so the palettes live in `WidgetUi` as constants matching `public/styles.css`,
+and the snapshot carries `theme` — already resolved from `"system"` to `"light"`
+or `"dark"`, because a widget is drawn without the page running and has nobody
+to ask.
+
+Two consequences worth knowing before editing a widget:
+
+- **Colour every view from the resolved palette.** `WidgetUi.frame()` paints the
+  ids all four layouts share; each provider colours its own extras. A
+  `RemoteViews` call naming an id the current layout does not have fails when
+  it is applied, which blanks the widget rather than throwing where you can see
+  it.
+- **Drawables cannot be swapped by id.** The card, the pressed row and the goal
+  bar each have a `_dark` twin, chosen in `WidgetUi`. The focus bar is a pair of
+  stacked `ProgressBar`s with one hidden, because
+  `setInt(id, "setProgressDrawable", …)` does not work from `RemoteViews`.
+
+Toggling the theme calls `pushWidgetsNow()`, which clears the snapshot cache so
+the new colours reach the shell even when no figure changed.
+
 ### Taps
 
 A tap opens the app with `#/view?act=action`, for example
@@ -103,4 +126,4 @@ Change `android:versionCode` (must increase) and `android:versionName` in
 `build.sh` — `aapt2 link` takes them from the command line, so editing only the
 manifest has no effect on the built APK.
 
-Current: versionCode 3, versionName 1.2.
+Current: versionCode 4, versionName 1.3.

@@ -16,7 +16,7 @@
 
 import {
   state, countdownParts, minutesOnDay, dayKey, streak, rangeMinutes, fmtMinutes, fmtDate, daysUntil,
-  examMoment
+  examMoment, effectiveTheme
 } from './lib.js';
 
 const bridge = typeof window !== 'undefined' ? window.StarShooterAndroid : undefined;
@@ -67,6 +67,10 @@ export function snapshot() {
     signedIn: true,
     savedAt: new Date().toISOString(),
     name: user.name || '',
+    // The theme actually on screen, not the stored preference: "system" is
+    // resolved through the device here, because a widget has to paint in the
+    // colours the student is looking at, and it cannot consult CSS.
+    theme: effectiveTheme(user.theme || 'system'),
     exam: {
       date: user.examDate || '2027-04-06',
       label: fmtDate(user.examDate || '2027-04-06', { day: 'numeric', month: 'short', year: 'numeric' }),
@@ -170,6 +174,17 @@ export function pushWidgets() {
 
 /** After sign-out, blank the widgets rather than leave old counts on screen. */
 export function clearWidgets() {
+  last = '';
+  pushWidgets();
+}
+
+/**
+ * The theme changed. Force a push even if every figure is identical, because
+ * the snapshot's `theme` is what the shell paints the cards from — and the
+ * dedupe in `pushWidgets` compares the whole JSON, so it would otherwise skip
+ * a toggle that changed nothing but the colours.
+ */
+export function pushWidgetsNow() {
   last = '';
   pushWidgets();
 }

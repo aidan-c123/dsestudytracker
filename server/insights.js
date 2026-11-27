@@ -1,129 +1,14 @@
 /**
- * Plans and entitlements.
+ * Derived views.
  *
- * One rule decided everything here: **a gate is only real if it withholds
- * data.** The whole workspace arrives in a single `GET /me` response, so a lock
- * drawn in CSS is bypassed by anyone who opens DevTools. Therefore:
+ * Both of these are computed from a student's own records on request, rather
+ * than stored: a pacing plan and a mistake breakdown are only ever as true as
+ * the marks and red-ink entries they were built from, so storing them would
+ * just create a second copy to keep in sync.
  *
- *   - Everything a free student can already do stays free, and stays complete.
- *     Their marks, their matrix, their export. Nothing is taken away and made
- *     worse to sell back.
- *   - Paid features are *computed on the server* and simply not computed for a
- *     free plan. There is no payload for a client-side toggle to reveal.
- *
- * A feature that cannot be withheld this way is not gated at all. "What-if"
- * target levels are derived from the published cut-offs, which every student can
- * read directly, so pretending to sell them would be theatre.
+ * Nothing here is gated. Everything in this file is free for every account —
+ * see the "no paywall" note in AGENTS.md.
  */
-
-/* ------------------------------- the plans -------------------------------- */
-
-export const PLANS = {
-  free: {
-    id: 'free',
-    name: 'Free',
-    features: []
-  },
-  pass: {
-    id: 'pass',
-    name: 'Exam pass',
-    // A single warm window rather than a subscription: DSE preparation is a
-    // season, and a monthly plan that outlives the exam is a bad deal for a
-    // student who will stop opening the app in May.
-    features: ['pacing', 'diagnostics', 'import']
-  }
-};
-
-/**
- * Every gateable feature, with a plain description for the locked card.
- * `why` is written for a student deciding whether to care, not for a marketer.
- */
-export const FEATURES = {
-  pacing: {
-    id: 'pacing',
-    name: 'Revision pacing',
-    summary: 'A week-by-week plan built backwards from your first paper and your SBA deadlines.',
-    detail:
-      'Works out how many weeks are left, how many papers that implies, and what to touch this week — adjusted for the subjects you have logged least.'
-  },
-  diagnostics: {
-    id: 'diagnostics',
-    name: 'Weak-topic diagnostics',
-    summary: 'Which mistake types keep costing you marks, and in which subjects.',
-    detail:
-      'Groups the red-ink log by kind of error and by subject, so “careless” and “concept gap” stop looking like the same problem. Needs at least a few entries to say anything useful.'
-  },
-  import: {
-    id: 'import',
-    name: 'Bulk import',
-    summary: 'Load a term of school marks from a CSV instead of typing each paper.',
-    detail: 'Useful when you already have marks in a spreadsheet from a mock series or a tutorial centre.'
-  }
-};
-
-const FEATURE_IDS = Object.keys(FEATURES);
-
-/* ------------------------------- resolution ------------------------------- */
-
-/**
- * The plan a user is on right now.
- *
- * A pass carries `planUntil`. An expired pass falls back to free rather than
- * leaving a student with features they stopped paying for — but the free plan
- * still has every mark, so nothing is lost except the extra views.
- */
-export function planOf(user, now = new Date()) {
-  if (!user) return 'free';
-  const declared = PLANS[user.plan] ? user.plan : 'free';
-  if (declared === 'free') return 'free';
-
-  if (user.planUntil) {
-    const until = new Date(user.planUntil);
-    if (Number.isNaN(until.getTime())) return 'free';
-    if (until.getTime() <= now.getTime()) return 'free';
-  }
-  return declared;
-}
-
-/** True when a user's plan includes a feature. */
-export function hasFeature(user, feature, now = new Date()) {
-  const plan = PLANS[planOf(user, now)];
-  return Boolean(plan && plan.features.includes(feature));
-}
-
-/**
- * What the client is told about its own plan.
- *
- * Deliberately includes the full feature catalogue, locked ones labelled, so the
- * app can show an honest "what this does" card instead of a bare padlock. It
- * carries no entitlement check the client could flip: flipping it would only
- * change what the UI draws, and the endpoints still refuse.
- */
-export function entitlementsFor(user, now = new Date()) {
-  const plan = planOf(user, now);
-  const active = PLANS[plan];
-  return {
-    plan,
-    name: active.name,
-    until: planOf(user, now) === 'free' ? null : user.planUntil || null,
-    features: FEATURE_IDS.map((id) => ({
-      ...FEATURES[id],
-      unlocked: active.features.includes(id)
-    })),
-    // Export is listed so the promise is visible in the UI, not just in a doc.
-    alwaysFree: ['marks', 'matrix', 'export', 'widgets']
-  };
-}
-
-/** 402 with a body the client can render as a locked card. */
-export function lockedResponse(feature) {
-  const meta = FEATURES[feature] || { name: 'This feature' };
-  return {
-    error: `${meta.name} is part of the exam pass.`,
-    locked: true,
-    feature
-  };
-}
 
 /* -------------------------------- pacing ---------------------------------- */
 

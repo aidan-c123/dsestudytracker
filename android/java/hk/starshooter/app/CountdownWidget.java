@@ -18,6 +18,9 @@ import java.util.concurrent.TimeUnit;
  * work out the days itself from the clock rather than showing a number that
  * was true when the app last ran. It redraws on the half hour, which is often
  * enough for a figure measured in days.
+ *
+ * The day count is the hero figure: it is set in the largest type on the card
+ * and grows with the widget. The date and results are captions under it.
  */
 public class CountdownWidget extends AppWidgetProvider {
 
@@ -36,13 +39,17 @@ public class CountdownWidget extends AppWidgetProvider {
 
     private RemoteViews build(Context context, int widgetId, Bundle options) {
         JSONObject snapshot = WidgetData.load(context);
+        WidgetUi.Palette p = WidgetUi.palette(context, snapshot, options);
+
         RemoteViews views = WidgetUi.frame(context, R.layout.widget_countdown,
                 context.getString(R.string.widget_countdown_title),
-                WidgetUi.updatedLabel(snapshot, context));
+                WidgetUi.updatedLabel(snapshot, context), p);
 
         if (!WidgetData.signedIn(snapshot)) {
             views.setTextViewText(R.id.widget_days, "—");
+            views.setTextColor(R.id.widget_days, p.faint);
             views.setTextViewText(R.id.widget_days_unit, context.getString(R.string.widget_signed_out));
+            views.setTextColor(R.id.widget_days_unit, p.muted);
             views.setTextViewText(R.id.widget_exam_date, "");
             views.setTextViewText(R.id.widget_results, "");
             views.setOnClickPendingIntent(R.id.widget_root,
@@ -62,13 +69,15 @@ public class CountdownWidget extends AppWidgetProvider {
         }
 
         views.setTextViewText(R.id.widget_days, past ? "0" : String.valueOf(days));
+        views.setTextColor(R.id.widget_days, past ? p.gold : p.accent);
         views.setTextViewText(R.id.widget_days_unit,
                 context.getString(past ? R.string.widget_days_past : R.string.widget_days_to_go));
-        views.setTextColor(R.id.widget_days, past ? WidgetUi.GOLD : WidgetUi.ACCENT);
+        views.setTextColor(R.id.widget_days_unit, p.muted);
 
         String label = exam == null ? "" : exam.optString("label", "");
         views.setTextViewText(R.id.widget_exam_date,
                 label.isEmpty() ? "" : context.getString(R.string.widget_first_paper, label));
+        views.setTextColor(R.id.widget_exam_date, p.ink);
 
         JSONObject results = snapshot.optJSONObject("results");
         if (results != null) {
@@ -78,6 +87,7 @@ public class CountdownWidget extends AppWidgetProvider {
         } else {
             views.setTextViewText(R.id.widget_results, "");
         }
+        views.setTextColor(R.id.widget_results, p.muted);
 
         views.setOnClickPendingIntent(R.id.widget_root,
                 WidgetUi.open(context, widgetId, "desk", null, null));

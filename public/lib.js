@@ -352,8 +352,8 @@ export const state = {
   errorSubject: 'all',
   timerPresetMinutes: 25,
   timerSubject: null,
-  // Populated only when the plan includes them; null means "locked or not
-  // loaded yet", which the Desk draws as a card rather than a blank.
+  // Derived views, computed on the server from the student's own records. Null
+  // until loaded, which the Desk draws as a short "loading" note.
   pacing: null,
   diagnostics: null
 };
@@ -393,11 +393,6 @@ export async function api(path, { method = 'GET', body } = {}) {
   if (!res.ok) {
     const error = new Error(data.error || `Request failed (${res.status}).`);
     error.status = res.status;
-    // A gated endpoint answers 402 with the feature name, so the caller can
-    // draw the locked card instead of a red toast. `status` alone is enough to
-    // tell a plan gate from a real failure.
-    error.locked = Boolean(data.locked);
-    error.feature = data.feature || null;
     throw error;
   }
   return data;
@@ -405,19 +400,12 @@ export async function api(path, { method = 'GET', body } = {}) {
 
 export async function refresh(data) {
   state.data = data?.user ? data : await api('/me');
-  // Most mutating routes answer with a bare workspace, which carries no `plan`.
-  // Keep the one we already have so a save does not silently relock the gated
-  // views. It is presentation only — the endpoints still enforce.
-  if (state.data && !state.data.plan && previousPlan) state.data.plan = previousPlan;
-  if (state.data?.plan) previousPlan = state.data.plan;
   if (!state.data.subjects.some((s) => s.id === state.paperSubjectId)) {
     state.paperSubjectId = state.data.subjects[0]?.id || null;
   }
   hooks.renderView();
   hooks.syncNav();
 }
-
-let previousPlan = null;
 
 /* -------------------------------- selectors ------------------------------- */
 
@@ -573,7 +561,9 @@ const media = window.matchMedia('(prefers-color-scheme: dark)');
 
 /** The theme actually on screen, resolving "system" through the device. */
 export function effectiveTheme(theme = 'system') {
-  return theme === 'system' ? (media.matches ? 'dark' : 'light') : theme;
+  // Guarded because server-side imports and tests may not have a matchMedia.
+  if (theme !== 'system') return theme;
+  return media && media.matches ? 'dark' : 'light';
 }
 
 export function applyTheme(theme = 'system') {

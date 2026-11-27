@@ -24,10 +24,10 @@ request body. Two extra checks matter:
 
 `test/isolation.test.js` exercises both cases directly.
 
-Plans do not weaken this. Entitlement checks are a second gate, not a second
-data path: a gated endpoint refuses before it reads anything, and the documents
-it would have read are still filtered by `userId`. See
-[Where entitlements live](#where-entitlements-live).
+There is no second gate to worry about: every feature is free, so the only
+authority in this model is `userId`. Pacing and diagnostics are computed per
+request from the caller's own documents — see
+[Computed views](#computed-views).
 
 ## Collections
 
@@ -44,31 +44,10 @@ it would have read are still filtered by `userId`. See
 | `resultsDate` | string | `YYYY-MM-DD` |
 | `dailyGoalMinutes` | int | 10–720 |
 | `theme` | string | `system` \| `light` \| `dark` |
-| `plan` | string | `free` \| `pass`; defaults to `free` for a new account |
-| `planUntil` | string \| null | optional ISO expiry of a pass; see below |
 | `createdAt` | date | |
 
-#### `plan` and `planUntil`
-
-The plan is resolved on the server by `planOf()` in
-`server/entitlements.js`, and the rules must be read before touching either
-field:
-
-- An unknown or missing `plan` string resolves to `free`. It never fails open.
-- `free` is absolute; `planUntil` is ignored for it.
-- A `pass` **with** `planUntil` expires: once that instant has passed, the
-  resolved plan is `free` again. A corrupt date also resolves to `free`.
-- A `pass` **without** `planUntil` does not expire. That is deliberate, for a
-  pass sold without an end date.
-- Expiry only changes which views are computed. Every document the student wrote
-  stays, because the free plan includes all of them.
-- `publicUser()` strips `planUntil` from anything sent to the client; the client
-  is told the resolved plan through `entitlementsFor()`. `plan` itself stays,
-  because the UI needs it to draw a locked card.
-
-Gated data is never written to `users`. Pacing and diagnostics are computed per
-request from the student's own documents, which is why a free account cannot
-reach them by editing a response in the browser.
+There is no `plan` or `planUntil`. Every account has every feature, and adding
+an entitlement field back would be a regression.
 
 ### `sessions`
 
@@ -191,21 +170,30 @@ errorLogs    { userId: 1, createdAt: -1 }
 
 `scripts/init-db.js` creates these plus per-collection JSON Schema validators.
 
-## Where entitlements live
+## Computed views
 
-Plans are not a collection. `plan` and `planUntil` sit on the `users` document,
-and everything else is derived per request:
+Nothing here is a collection. Pacing and diagnostics are derived per request
+from the caller's own documents by `server/insights.js`, and import writes
+ordinary `pastPapers` documents.
 
-| Endpoint | Free | Pass |
+| Endpoint | Requires | Returns |
 | --- | --- | --- |
-| `GET /me` | full workspace + `plan` | same |
-| `GET /pacing` | `402 { locked, feature }` | computed plan |
-| `GET /diagnostics` | `402` | computed counts |
-| `POST /import` | `402` | rows validated, then saved |
+| `GET /me` | a session | the full workspace |
+| `GET /pacing` | a session | pacing, computed |
+| `GET /diagnostics` | a session | weak-topic counts, computed |
+| `POST /import` | a session | rows validated, then saved |
 
-The gated values are never stored, so there is no document for a free account to
-read. `/import` writes ordinary `pastPapers` documents through the same
-`validateAttempt` as a manual save.
+All four answer `401` without a session. There is no `402`: there is no plan to
+check, so there is no gated value to withhold. `/pacing` and `/diagnostics`
+return `200`; `/import` returns `201` when at least one row saved and `400` when
+every row failed validation.
+
+`/import` routes every row through the same `validateAttempt` as a manual save,
+so it cannot store a paper the form would refuse. Failures are reported per row
+and the batch continues, up to 500 rows.
+
+Diagnostics answer `enough: false` below four entries for a topic rather than
+naming a pattern from thin evidence. That applies to every account.
 
 ## Why not Atlas RLS
 

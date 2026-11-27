@@ -365,11 +365,7 @@ const HANDLERS = {
       box.value = '';
       toast(`Imported ${data.imported}.`);
     } catch (err) {
-      if (err.locked) {
-        toast('Bulk import is part of the exam pass.', 'error');
-      } else {
-        toast(errorText(err), 'error');
-      }
+      toast(errorText(err), 'error');
     }
   },
 

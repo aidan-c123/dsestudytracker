@@ -2,6 +2,11 @@
 <!--
   Focus widget: today's minutes against the goal, one tap to start a block, or
   the remaining time when one is already running.
+
+  The goal bar is drawn twice, one per theme, because a RemoteViews cannot be
+  handed a drawable resource by id — only a colour or a flag. Both bars sit in a
+  fixed 4dp frame and Java un-hides the one matching the palette, so the layout
+  height does not change with the theme.
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/widget_root"
@@ -37,7 +42,12 @@
             android:textColor="#10574B"
             android:textSize="28sp"
             android:textStyle="bold"
-            android:includeFontPadding="false" />
+            android:includeFontPadding="false"
+            android:maxLines="1"
+            android:autoSizeTextType="uniform"
+            android:autoSizeMinTextSize="16sp"
+            android:autoSizeMaxTextSize="28sp"
+            android:autoSizeStepGranularity="2sp" />
 
         <TextView
             android:id="@+id/widget_focus_goal"
@@ -53,15 +63,30 @@
             android:ellipsize="end" />
     </LinearLayout>
 
-    <ProgressBar
-        android:id="@+id/widget_focus_bar"
-        style="@android:style/Widget.ProgressBar.Horizontal"
+    <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="4dp"
-        android:layout_marginTop="4dp"
-        android:max="100"
-        android:progress="0"
-        android:progressDrawable="@drawable/widget_progress" />
+        android:layout_marginTop="4dp">
+
+        <ProgressBar
+            android:id="@+id/widget_focus_bar"
+            style="@android:style/Widget.ProgressBar.Horizontal"
+            android:layout_width="match_parent"
+            android:layout_height="4dp"
+            android:max="100"
+            android:progress="0"
+            android:progressDrawable="@drawable/widget_progress" />
+
+        <ProgressBar
+            android:id="@+id/widget_focus_bar_dark"
+            style="@android:style/Widget.ProgressBar.Horizontal"
+            android:layout_width="match_parent"
+            android:layout_height="4dp"
+            android:max="100"
+            android:progress="0"
+            android:visibility="gone"
+            android:progressDrawable="@drawable/widget_progress_dark" />
+    </FrameLayout>
 
     <TextView
         android:id="@+id/widget_focus_streak"

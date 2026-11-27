@@ -2,9 +2,18 @@
 <!--
   Countdown widget.
 
-  One figure, read at a glance: the days remaining. The date sits under it, and
-  results under that. The footer says when the figures were last synced, because
-  a widget cannot refresh itself.
+  One figure, read at a glance: the days remaining. It is the largest thing on
+  the card by a wide margin — this is the number a student unlocks the phone
+  for, and a countdown that has to be hunted for is a countdown that gets
+  ignored. The date and results sit under it as quiet captions, and the footer
+  says when the figures were last synced, because a widget cannot refresh
+  itself.
+
+  The number sits in a weighted row rather than a fixed size, so the figure
+  grows with the widget instead of leaving a gap, and auto-size keeps a
+  three-digit count inside a narrow one. Colours are set in Java (WidgetUi) so
+  the card follows the app's light or dark theme; the values here are the light
+  theme, used as the layout's own default.
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/widget_root"
@@ -25,31 +34,42 @@
         android:textAllCaps="true"
         android:maxLines="1" />
 
+    <!-- The hero row: the days figure takes every pixel the card can spare. -->
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
+        android:layout_height="0dp"
+        android:layout_weight="1"
         android:orientation="horizontal"
+        android:gravity="bottom"
         android:baselineAligned="true"
-        android:layout_marginTop="2dp">
+        android:layout_marginTop="1dp">
 
         <TextView
             android:id="@+id/widget_days"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="—"
-            android:textColor="#10574B"
-            android:textSize="34sp"
-            android:textStyle="bold"
-            android:includeFontPadding="false" />
-
-        <TextView
-            android:id="@+id/widget_days_unit"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:layout_marginStart="6dp"
-            android:layout_marginBottom="5dp"
             android:layout_gravity="bottom"
+            android:gravity="start"
+            android:text="—"
+            android:textColor="#10574B"
+            android:textSize="56sp"
+            android:textStyle="bold"
+            android:includeFontPadding="false"
+            android:maxLines="1"
+            android:autoSizeTextType="uniform"
+            android:autoSizeMinTextSize="30sp"
+            android:autoSizeMaxTextSize="56sp"
+            android:autoSizeStepGranularity="2sp" />
+
+        <TextView
+            android:id="@+id/widget_days_unit"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="7dp"
+            android:layout_marginBottom="7dp"
+            android:layout_gravity="bottom"
+            android:maxWidth="76dp"
             android:text="@string/widget_days_to_go"
             android:textColor="#6B7770"
             android:textSize="11sp"
@@ -78,9 +98,8 @@
     <TextView
         android:id="@+id/widget_saved"
         android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
-        android:gravity="bottom"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp"
         android:textColor="#98A29C"
         android:textSize="9sp"
         android:maxLines="1"

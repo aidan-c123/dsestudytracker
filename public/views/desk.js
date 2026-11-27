@@ -8,7 +8,6 @@ import {
   streak, rangeMinutes, fmtDue, subjectById, usesAttainment, subjectAttainment,
   attainmentChip, attainmentLabel
 } from '../lib.js';
-import { unlocked, lockedCard } from '../gates.js';
 
 export function renderDesk() {
   const { user } = state.data;
@@ -305,8 +304,8 @@ export function renderDesk() {
     </div>
 
     <div class="grid cols-2" style="margin-top:16px">
-      ${unlocked('pacing') ? pacingCard(state.pacing) : lockedCard('pacing', { icon: 'lock' })}
-      ${unlocked('diagnostics') ? diagnosticsCard(state.diagnostics) : lockedCard('diagnostics', { icon: 'lock' })}
+      ${pacingCard(state.pacing)}
+      ${diagnosticsCard(state.diagnostics)}
     </div>
   `;
 }

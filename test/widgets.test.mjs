@@ -208,6 +208,50 @@ check('the snapshot holds no marks, levels or email', async () => {
   }
 });
 
+/* ---- the theme must reach the widgets ----------------------------------- */
+
+check('the snapshot carries the theme the app is actually painting', async () => {
+  // The widgets cannot read CSS, so the card colours depend on this string.
+  // It must be the resolved theme, never the literal "system".
+  const w = await import('../public/widgets.js');
+  const snap = w.snapshot();
+  if (!['light', 'dark'].includes(snap.theme)) {
+    throw new Error(`snapshot theme is "${snap.theme}", expected light or dark`);
+  }
+});
+
+check('a dark app theme reaches the snapshot', async () => {
+  const lib = await import('../public/lib.js');
+  const w = await import('../public/widgets.js');
+  lib.state.data.user.theme = 'dark';
+  lib.applyTheme('dark');
+  const snap = w.snapshot();
+  if (snap.theme !== 'dark') throw new Error(`theme is "${snap.theme}", expected dark`);
+  lib.state.data.user.theme = 'light';
+  lib.applyTheme('light');
+});
+
+check('"system" is resolved, not passed through to the widgets', async () => {
+  const lib = await import('../public/lib.js');
+  const w = await import('../public/widgets.js');
+  lib.state.data.user.theme = 'system';
+  const snap = w.snapshot();
+  if (snap.theme === 'system') throw new Error('the literal "system" reached the widgets');
+  if (!['light', 'dark'].includes(snap.theme)) throw new Error(`unresolved theme: ${snap.theme}`);
+  lib.state.data.user.theme = 'light';
+  lib.applyTheme('light');
+});
+
+check('a theme change forces a push even when the figures are unchanged', async () => {
+  // The dedupe compares the whole JSON, so without a forced push a toggle that
+  // changed nothing but the colours would never reach the shell.
+  const w = await import('../public/widgets.js');
+  const before = pushed.length;
+  w.pushWidgetsNow();
+  await new Promise((r) => setTimeout(r, 400));
+  if (pushed.length <= before) throw new Error('no push happened after the theme change');
+});
+
 /* ---- a widget tap must reach the action it named ------------------------- */
 
 check('a widget action opens the paper dialog', async () => {

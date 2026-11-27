@@ -32,16 +32,24 @@ public class FocusWidget extends AppWidgetProvider {
 
     private RemoteViews build(Context context, int widgetId, Bundle options) {
         JSONObject snapshot = WidgetData.load(context);
+        WidgetUi.Palette p = WidgetUi.palette(context, snapshot, options);
+
         RemoteViews views = WidgetUi.frame(context, R.layout.widget_focus,
                 context.getString(R.string.widget_focus_title),
-                WidgetUi.updatedLabel(snapshot, context));
+                WidgetUi.updatedLabel(snapshot, context), p);
+
+        views.setInt(R.id.focus_action, "setBackgroundResource", WidgetUi.rowDrawable(p));
+        views.setTextColor(R.id.widget_focus_streak, p.gold);
+        views.setTextColor(R.id.focus_action_label, p.accent);
 
         views.setOnClickPendingIntent(R.id.widget_root,
                 WidgetUi.open(context, widgetId, "focus", null, null));
 
         if (!WidgetData.signedIn(snapshot)) {
             views.setTextViewText(R.id.widget_focus_done, "—");
+            views.setTextColor(R.id.widget_focus_done, p.faint);
             views.setTextViewText(R.id.widget_focus_goal, context.getString(R.string.widget_signed_out));
+            views.setTextColor(R.id.widget_focus_goal, p.muted);
             views.setTextViewText(R.id.focus_action_label, context.getString(R.string.widget_focus_start));
             views.setOnClickPendingIntent(R.id.focus_action,
                     WidgetUi.open(context, widgetId, "focus", "focus", "25"));
@@ -64,11 +72,12 @@ public class FocusWidget extends AppWidgetProvider {
             }
             views.setTextViewText(R.id.widget_focus_done, clock);
             views.setTextColor(R.id.widget_focus_done,
-                    "break".equals(running.optString("mode")) ? WidgetUi.GOLD : WidgetUi.ACCENT);
+                    "break".equals(running.optString("mode")) ? p.gold : p.accent);
             views.setTextViewText(R.id.widget_focus_goal,
                     context.getString(running.optBoolean("paused")
                             ? R.string.widget_block_paused
                             : R.string.widget_block_running));
+            views.setTextColor(R.id.widget_focus_goal, p.muted);
             views.setTextViewText(R.id.focus_action_label,
                     context.getString(R.string.widget_focus_open));
             views.setOnClickPendingIntent(R.id.focus_action,
@@ -81,10 +90,11 @@ public class FocusWidget extends AppWidgetProvider {
         int pct = focus == null ? 0 : focus.optInt("pct", 0);
 
         views.setTextViewText(R.id.widget_focus_done, done);
-        views.setTextColor(R.id.widget_focus_done, WidgetUi.ACCENT);
+        views.setTextColor(R.id.widget_focus_done, p.accent);
         views.setTextViewText(R.id.widget_focus_goal,
                 goal.isEmpty() ? "" : context.getString(R.string.widget_of_goal, goal));
-        views.setProgressBar(R.id.widget_focus_bar, 100, Math.max(0, Math.min(100, pct)), false);
+        views.setTextColor(R.id.widget_focus_goal, p.muted);
+        WidgetUi.showProgress(views, p, R.id.widget_focus_bar, R.id.widget_focus_bar_dark, pct);
 
         int streak = focus == null ? 0 : focus.optInt("streak", 0);
         views.setTextViewText(R.id.widget_focus_streak,

@@ -48,53 +48,36 @@ place of a removed attempt — an older bug did exactly this and left ghost rows
 `removePaperCell()` exists because the matrix deletes by cell (subject, year,
 paper), not by row id, so a replaced row cannot survive a delete.
 
-### A gate is only real if it withholds data
+### There is no paywall — keep it that way
 
-Plans live in `server/entitlements.js`. Two rules, and breaking either one makes
-the paywall dishonest rather than merely broken:
+Every feature is free for every account. There is no `plan`, no `planUntil`, no
+`402`, and no `gates.js`. If you find yourself adding an entitlement check, stop:
+the owner asked for the paywall to be removed, and re-adding one silently is a
+regression.
 
-- **The free desk stays whole.** Every mark, the full fifteen-year matrix, the
-  red-ink log and the JSON export are free and stay free. They are not degraded
-  to be sold back. `test/plans.test.js` asserts this for a free account.
-- **The server refuses, not the stylesheet.** The whole workspace arrives in one
-  `GET /me`, so a lock drawn in CSS is bypassed by opening DevTools. Gated views
-  are separate endpoints (`/pacing`, `/diagnostics`, `/import`) that answer
-  `402 { locked: true, feature }` on a free plan. A free response must contain
-  no `pacing` or `diagnostics` key at all — if one appears, the gate is theatre.
-
-Consequences worth keeping:
-
-- `entitlementsFor()` is presentation only. It names what is locked; it carries
-  no field a client could flip to unlock anything. Never add `canWrite`,
-  `isAdmin` or similar to that payload.
-- `planOf()` falls back to `free` for an unknown plan string and for a corrupt
-  `planUntil`. It must never fail open. A `pass` with no `planUntil` does not
-  expire — that is deliberate, for a pass sold without an end date.
-- `publicUser()` strips `planUntil`, because it is an internal expiry. The
-  client learns the resolved plan through `entitlementsFor`.
-- Every mutating route answers with a bare workspace, which has no `plan`.
-  `refresh()` in `lib.js` keeps the previous plan for that reason; without it a
-  save silently relocks the gated views.
-- Bulk import runs each row through the same `validateAttempt` as a manual save.
-  An import must not be a back door to a paper the form would refuse (CSD with
-  a level, Chinese P3 in 2024, a blank score). Bad rows are reported per row and
-  the batch continues; 500 rows maximum.
-- Diagnostics refuse to name a pattern below four entries (`enough: false`). A
-  confident diagnosis from two lines would be worse than silence.
-- **Not gated, on purpose:** the fifteen-year matrix (published DSE00 data),
-  the predictor, export, and "what-if" target levels. Tolling public data sends
-  students to the source for free, and improving the engine then locking it is
-  crippleware in exam season.
-- There is no payment provider yet, so nothing can be bought. The UI says so
-  rather than implying a purchase. If one is added, Vercel Hobby is
-  non-commercial and the app would need a paid host.
+- **`server/insights.js` is where pacing and diagnostics live.** `buildPacing`
+  and `buildDiagnostics` are pure functions over the workspace. They are called
+  by `/pacing` and `/diagnostics`, which check only that a session exists.
+- **A 402 anywhere is a bug.** A missing session is `401`; anything else is
+  `200` with the data.
+- **Bulk import runs each row through the same `validateAttempt` as a manual
+  save.** An import must not be a back door to a paper the form would refuse
+  (CSD with a level, Chinese P3 in 2024, a blank score). Bad rows are reported
+  per row and the batch continues; 500 rows maximum.
+- **Diagnostics refuse to name a pattern below four entries** (`enough: false`).
+  That is honesty about thin evidence, not a gate — it applies to every account
+  and is covered by a test.
+- `publicUser()` still strips `pw`, `recovery` and `emailLower` — those are real
+  secrets and must keep being stripped. There is no plan field to hide any more,
+  so do not reintroduce a "presentation" payload for entitlements.
 
 ### The service worker precaches by name
 
 `public/sw.js` lists the shell file by file. **A new `public/*.js` module must be
 added to its `SHELL` array and `VERSION` bumped**, or an installed phone keeps
 running an old shell that cannot resolve the new import and the page dies on
-load. `gates.js` was added this way (shell `v9`).
+load. `widgets.js` was added this way; `gates.js` was removed this way when the
+paywall went, so check the array does not still list a deleted file.
 
 ### Matrix cells are both "log" and "edit"
 
@@ -107,15 +90,14 @@ that fails if you remove the lookup.
 ## Testing
 
 ```bash
-npm run test          # 41 isolation checks — needs no database
-npm run test:ui       # 66 UI checks — needs jsdom
+npm run test          # 45 isolation checks — needs no database
+npm run test:ui       # 67 UI checks — needs jsdom
 npm run test:native   # 6 Android-shell checks — needs jsdom
-npm run test:widgets  # 17 widget checks — needs jsdom
-npm run test:plans    # 17 entitlement checks — needs no database
+npm run test:widgets  # 21 widget checks — needs jsdom
 node test/cutoffs.test.mjs   # 9 grading checks
 ```
 
-Run all six before claiming something is fixed. Two traps:
+Run all five before claiming something is fixed. Two traps:
 
 - `test/ui.test.mjs` supports async checks now. If you add a check that returns
   a promise, it is awaited; if you write a synchronous check that leaves work
@@ -159,6 +141,20 @@ Four providers — `CountdownWidget`, `QuickLogWidget`, `FocusWidget`,
   from three days ago otherwise reads as today's. The countdown is the one
   exception, because the page sends `exam.at` as epoch millis and the widget
   re-derives the days from the clock.
+- **The widgets follow the app's theme.** The page cannot hand Java a stylesheet,
+  so `WidgetUi` holds the light and dark palettes as constants and the snapshot
+  carries `theme` — already resolved, never the literal `"system"`. Each
+  provider resolves the palette once and colours its own views; share only what
+  every layout contains (`WidgetUi.paint`), because a `RemoteViews` call naming
+  an id the layout lacks fails at apply time and blanks the widget.
+- **A `RemoteViews` cannot swap a drawable by resource id.** Card, row and
+  progress-bar variants are separate drawables chosen in `WidgetUi`, and the
+  focus bar exists twice with one hidden — do not try
+  `setInt(id, "setProgressDrawable", …)`.
+- **A theme change must force a push.** `pushWidgets()` dedupes on the whole
+  JSON, so `pushWidgetsNow()` clears the cache first; otherwise a toggle that
+  moved no figures would never reach the shell. `main.js` calls it from the
+  `starshooter:theme` listener.
 - **The snapshot carries counts and dates, not marks.** No levels, no
   percentages, no email — widgets show on a locked phone. Red-ink topics are the
   single deliberate exception. `test/widgets.test.mjs` asserts the absence.

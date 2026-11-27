@@ -4,8 +4,8 @@ import {
   attainment, usesAttainment, CSD_CODE, CSD_FIRST_YEAR, otherSource, paperRetired, gradeBands
 } from './util.js';
 import {
-  entitlementsFor, hasFeature, lockedResponse, buildPacing, buildDiagnostics, planOf
-} from './entitlements.js';
+  buildPacing, buildDiagnostics
+} from './insights.js';
 
 /* --------------------------------- responses ------------------------------ */
 
@@ -136,23 +136,17 @@ export async function handleApi(request, path, injectedStore) {
     const userId = String(auth.user._id);
 
     if (path === '/me' && method === 'GET') {
-      const data = await store.loadWorkspace(auth.user);
-      // The client needs to know its own plan to draw a locked card, but this
-      // is presentation only: every gated endpoint refuses independently, so
-      // editing this response in DevTools unlocks nothing.
-      return json({ ...data, plan: entitlementsFor(auth.user) });
+      return json(await store.loadWorkspace(auth.user));
     }
 
-    /* ------------------------------ gated views ------------------------------ */
-    // Computed only when the plan allows it, so a free response never contains
-    // the data a client-side toggle could reveal.
+    /* ------------------------------ derived views ----------------------------- */
+    // Open to every signed-in student. These are computed from the caller's own
+    // records per request, so nothing is stored twice and nothing is withheld.
     if (path === '/pacing' && method === 'GET') {
-      if (!hasFeature(auth.user, 'pacing')) return json(lockedResponse('pacing'), 402);
       return json(buildPacing(await store.loadWorkspace(auth.user)));
     }
 
     if (path === '/diagnostics' && method === 'GET') {
-      if (!hasFeature(auth.user, 'diagnostics')) return json(lockedResponse('diagnostics'), 402);
       return json(buildDiagnostics(await store.loadWorkspace(auth.user)));
     }
 
@@ -355,8 +349,6 @@ export async function handleApi(request, path, injectedStore) {
      * so a spreadsheet with three bad lines still loads the other twenty.
      */
     if (path === '/import' && method === 'POST') {
-      if (!hasFeature(auth.user, 'import')) return json(lockedResponse('import'), 402);
-
       const rows = Array.isArray(body.rows) ? body.rows : null;
       if (!rows) return fail('Send a "rows" array.');
       if (rows.length === 0) return fail('That file had no rows.');
