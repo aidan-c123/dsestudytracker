@@ -901,6 +901,12 @@ table.plain td.num { font-variant-numeric: tabular-nums; font-size: 0.8rem; }
 /* ---------------------------------- toast --------------------------------- */
 
 #toast-root { position: fixed; z-index: 200; left: 50%; bottom: 22px; transform: translateX(-50%); display: grid; gap: 8px; width: min(440px, calc(100% - 32px)); }
+/* Over an open dialog, the action row owns the bottom of the screen. Toasts
+   move up so "Attempt removed." cannot hide the next button. */
+[data-modal-open] #toast-root {
+  bottom: auto;
+  top: calc(14px + env(safe-area-inset-top));
+}
 .toast {
   background: var(--ink); color: var(--paper);
   border-radius: var(--radius-control); padding: 10px 13px; font-size: 0.84rem; font-weight: 500;

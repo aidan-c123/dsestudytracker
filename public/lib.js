@@ -638,6 +638,10 @@ export function openModal({ title, subtitle = '', body, wide = false, footer = '
     </div>`;
   layer.appendChild(backdrop);
   document.body.style.overflow = 'hidden';
+  // Toasts normally sit at the bottom, which is where a phone sheet keeps its
+  // action row. While a dialog is open they move to the top so a confirmation
+  // cannot cover the buttons the student needs next.
+  document.documentElement.dataset.modalOpen = 'yes';
 
   const onKey = (e) => {
     if (e.key === 'Escape') closeModal();
@@ -674,6 +678,7 @@ export function closeModal() {
   if (!layer) return;
   layer.innerHTML = '';
   document.body.style.overflow = '';
+  delete document.documentElement.dataset.modalOpen;
   if (modalCleanup) modalCleanup();
   modalCleanup = null;
 }

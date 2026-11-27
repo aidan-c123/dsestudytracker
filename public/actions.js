@@ -120,11 +120,22 @@ const HANDLERS = {
   },
 
   'log-paper': (el) => {
-    openPaperModal({
-      subjectId: el.dataset.subject,
-      year: el.dataset.year,
-      paper: el.dataset.paper
-    });
+    const { subject, year, paper } = el.dataset;
+    // A cell in the matrix is both "log" and "edit": if an attempt already
+    // exists for that cell, open that record instead of a blank form. Without
+    // this the dialog believed every tap was a new attempt, so a filled cell
+    // had no Delete button and offered to create a second row for one paper.
+    const existing =
+      year && paper
+        ? state.data.papers.find(
+            (p) => p.subjectId === subject && Number(p.year) === Number(year) && p.paper === paper
+          )
+        : null;
+    if (existing) {
+      openPaperModal({ record: existing });
+      return;
+    }
+    openPaperModal({ subjectId: subject, year, paper });
   },
 
   'edit-paper': (el) => {

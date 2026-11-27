@@ -202,15 +202,35 @@ const lib = await import('../public/lib.js');
 const app = await import('../public/app.js');
 
 let failed = 0;
+/* Checks run immediately, in file order, because the flows in this file
+   interleave clicks with assertions. A check may return a promise; those are
+   collected and awaited before the summary. The earlier version called fn()
+   and ignored the returned promise, so an asynchronous check printed "ok"
+   before its assertions had run — a real failure could hide behind a tick. */
+const pending = [];
 const check = (label, fn) => {
   try {
-    fn();
-    console.log(`  ok  ${label}`);
+    const result = fn();
+    if (result && typeof result.then === 'function') {
+      pending.push(
+        result.then(
+          () => console.log(`  ok  ${label}`),
+          (err) => {
+            failed++;
+            console.error(`FAIL  ${label}\n      ${err.message}`);
+          }
+        )
+      );
+    } else {
+      console.log(`  ok  ${label}`);
+    }
   } catch (err) {
     failed++;
     console.error(`FAIL  ${label}\n      ${err.message}`);
   }
 };
+
+const settle = () => Promise.all(pending);
 
 const $ = (sel) => window.document.querySelector(sel);
 const $$ = (sel) => [...window.document.querySelectorAll(sel)];
@@ -1176,6 +1196,86 @@ check('no leftover dialog overlay after the flows', () => {
   if ($('.modal-backdrop')) throw new Error('backdrop left behind');
   if (window.document.body.style.overflow === 'hidden') throw new Error('page scroll left locked');
 });
+
+/* --- Re-opening a logged cell must offer Delete --------------------------- */
+
+/* The matrix draws one button per cell, logged or not, and both fire
+   "log-paper". The handler has to notice that a record already exists for
+   that cell and open it for editing; otherwise a student sees a blank form
+   for a paper they have already logged, with no way to remove it. */
+check('tapping a logged cell opens the attempt with a Delete button', () => {
+  lib.closeModal();
+  app.navigate('papers');
+  // The matrix shows one subject at a time; select Chinese before looking for
+  // a cell, or the tap lands on whichever tab happens to be open.
+  const tab = window.document.querySelector('[data-act="pick-subject"][data-id="s1"]');
+  if (!tab) throw new Error('the Chinese subject tab is not on the page');
+  tab.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  return tick()
+    .then(() => {
+      const cell = window.document.querySelector(
+        '.matrix [data-act="log-paper"][data-subject="s1"][data-year="2025"][data-paper="P2"]'
+      );
+      if (!cell) throw new Error('the 2025 P2 cell is not on the page');
+      cell.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      return tick();
+    })
+    .then(() => {
+      const form = modal()?.querySelector('#paper-form');
+      if (!form) throw new Error('the log dialog did not open');
+      modal().querySelector('#pf-score').value = '61';
+      modal().querySelector('#pf-max').value = '100';
+      form.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+      return tick().then(tick);
+    })
+    .then(() => {
+      const logged = db.papers.find(
+        (p) => p.subjectId === 's1' && Number(p.year) === 2025 && p.paper === 'P2'
+      );
+      if (!logged) throw new Error('the attempt was never saved');
+
+      // Now tap the same cell again, which is what the student did.
+      app.navigate('papers');
+      return tick();
+    })
+    .then(() => {
+      const again = window.document.querySelector(
+        '.matrix [data-act="log-paper"][data-subject="s1"][data-year="2025"][data-paper="P2"]'
+      );
+      if (!again) throw new Error('the cell vanished after logging');
+      again.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      return tick();
+    })
+    .then(() => {
+      const m = modal();
+      if (!m) throw new Error('the cell no longer opens a dialog');
+      const heading = m.querySelector('.modal-head h2')?.textContent.trim();
+      if (heading !== 'Edit attempt') {
+        throw new Error(`a logged cell opened "${heading}" instead of Edit attempt`);
+      }
+      const del = m.querySelector('[data-delete]');
+      if (!del) throw new Error('there is no Delete button — the attempt cannot be removed');
+      if (!/delete/i.test(del.textContent)) throw new Error('the control does not say Delete');
+
+      // And it must actually delete, not just close.
+      const before = db.papers.length;
+      del.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      return tick()
+        .then(tick)
+        .then(() => {
+          if (db.papers.length !== before - 1) throw new Error('the attempt was not removed');
+          if (
+            db.papers.some(
+              (p) => p.subjectId === 's1' && Number(p.year) === 2025 && p.paper === 'P2'
+            )
+          ) {
+            throw new Error('the row survived the delete');
+          }
+        });
+    });
+});
+
+await settle();
 
 console.log(`\n${failed ? `${failed} failed` : 'all UI checks passed'}\n`);
 process.exit(failed ? 1 : 0);
