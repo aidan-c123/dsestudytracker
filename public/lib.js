@@ -588,6 +588,8 @@ export function applyTheme(theme = 'system') {
   document.querySelectorAll('[data-theme-icon]').forEach((el) => {
     el.innerHTML = icon(effective === 'dark' ? 'sun' : 'moon');
   });
+  // The Android shell paints its own system bars, so it needs to be told.
+  window.dispatchEvent(new CustomEvent('starshooter:theme', { detail: effective }));
 }
 
 /** Flip between light and dark without a round-trip or a page rebuild. */

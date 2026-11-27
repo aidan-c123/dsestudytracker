@@ -17,6 +17,7 @@
     "check": "node --check server/routes.js && node --check server/store.js && node --check server/db.js",
     "test": "node test/isolation.test.js",
     "test:ui": "node test/ui.test.mjs",
+    "test:native": "node test/native.test.mjs",
     "cutoffs": "node scripts/fetch-cutoffs.mjs"
   }
 }

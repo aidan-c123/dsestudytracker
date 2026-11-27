@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Foreground layer for the adaptive launcher icon.
+
+  The 108x108 canvas is the full icon; launchers only guarantee the central
+  72x72 is visible, and many mask it to a circle. The four cells therefore sit
+  inside 30..78, well within the safe zone, so no mask shape can clip one.
+  Same mark as the web favicon: three cream cells and one gold.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- top-left -->
+    <path
+        android:fillColor="#F8F6F1"
+        android:pathData="M36,30 H45 A6,6 0 0 1 51,36 V45 A6,6 0 0 1 45,51 H36 A6,6 0 0 1 30,45 V36 A6,6 0 0 1 36,30 Z" />
+    <!-- top-right -->
+    <path
+        android:fillColor="#F8F6F1"
+        android:pathData="M63,30 H72 A6,6 0 0 1 78,36 V45 A6,6 0 0 1 72,51 H63 A6,6 0 0 1 57,45 V36 A6,6 0 0 1 63,30 Z" />
+    <!-- bottom-left -->
+    <path
+        android:fillColor="#F8F6F1"
+        android:pathData="M36,57 H45 A6,6 0 0 1 51,63 V72 A6,6 0 0 1 45,78 H36 A6,6 0 0 1 30,72 V63 A6,6 0 0 1 36,57 Z" />
+    <!-- bottom-right: the paper you are working toward -->
+    <path
+        android:fillColor="#E0C383"
+        android:pathData="M63,57 H72 A6,6 0 0 1 78,63 V72 A6,6 0 0 1 72,78 H63 A6,6 0 0 1 57,72 V63 A6,6 0 0 1 63,57 Z" />
+</vector>

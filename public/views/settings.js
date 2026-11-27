@@ -8,6 +8,9 @@ import {
 
 export function renderSettings() {
   const u = state.data.user;
+  // Inside the Android app there is nothing to install, so the card is skipped
+  // rather than shown with a button that cannot work.
+  const nativeApp = document.documentElement.dataset.nativeApp === 'android';
   const theme = u.theme || 'system';
   const installed =
     typeof window !== 'undefined' &&
@@ -139,7 +142,7 @@ export function renderSettings() {
       </section>
     </div>
 
-    <section class="card" style="margin-top:16px" id="install-card">
+    <section class="card" style="margin-top:16px" id="install-card"${nativeApp ? ' hidden' : ''}>
       <div class="card-head"><h2>Install on your phone</h2></div>
       <p class="card-note" style="margin:-6px 0 12px">
         StarShooter installs to your home screen and opens full-screen, like a normal app.

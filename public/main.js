@@ -1,6 +1,23 @@
 import { boot } from './app.js';
+import { isNativeApp, syncNativeTheme } from './native.js';
+import { toast } from './lib.js';
 
 boot();
+
+/* ------------------------------- Android shell ----------------------------
+ * Inside the APK the page is wrapped by a small Java shell. Its system bars
+ * are painted from Java, so they need the theme name; and a failed save is
+ * worth saying out loud, because a WebView download otherwise just does
+ * nothing at all.
+ * ------------------------------------------------------------------------- */
+if (isNativeApp) {
+  const painted = document.documentElement.dataset.theme;
+  if (painted) syncNativeTheme(painted);
+  window.addEventListener('starshooter:theme', (e) => syncNativeTheme(e.detail));
+  window.addEventListener('starshooter:save-failed', () =>
+    toast('Could not save that file. Copy the text instead.', 'error')
+  );
+}
 
 /* --------------------------------- install --------------------------------
  * The app is a PWA, so on a phone it can be added to the home screen and open
@@ -21,9 +38,12 @@ if ('serviceWorker' in navigator && !isDev) {
 }
 
 /* Chrome fires this when the app is installable; keep it so Settings can offer
- * a real install button instead of instructions. */
-window.addEventListener('beforeinstallprompt', (event) => {
-  event.preventDefault();
-  window.__installPrompt = event;
-  document.documentElement.dataset.installable = 'yes';
-});
+ * a real install button instead of instructions. Inside the APK there is
+ * nothing to install, so the prompt is ignored. */
+if (!isNativeApp) {
+  window.addEventListener('beforeinstallprompt', (event) => {
+    event.preventDefault();
+    window.__installPrompt = event;
+    document.documentElement.dataset.installable = 'yes';
+  });
+}

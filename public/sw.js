@@ -11,7 +11,7 @@
        and a stale grade would be worse than an error.
    ============================================================ */
 
-const VERSION = 'v4';
+const VERSION = 'v5';
 const SHELL_CACHE = `starshooter-shell-${VERSION}`;
 const ASSET_CACHE = `starshooter-assets-${VERSION}`;
 
@@ -27,6 +27,7 @@ const SHELL = [
   '/fonts/newsreader-italic.woff2',
   '/manifest.webmanifest',
   '/main.js',
+  '/native.js',
   '/app.js',
   '/lib.js',
   '/cutoffs.js',
